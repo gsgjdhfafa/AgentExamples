@@ -117,6 +117,51 @@ The following agent frameworks are currently implemented:
 
 *SmolAgents' automatic tool generation feature provides code-writing capabilities but was not used here to maintain fair comparison across frameworks.
 
+## Specialised Agent: EU Procurement Intelligence
+
+In addition to the framework comparison, this repository includes a fully
+worked specialised agent for the acquisition of European public-sector,
+military, firefighter and waterworks surplus equipment - matching the
+strategic handbook *"Beschaffung von Militär-/Feuerwehrausrüstung"*.
+
+| File | Purpose |
+|------|---------|
+| `procurement_prompts.py`   | Role / goal / instructions / domain knowledge for the agent |
+| `procurement_data.py`      | Normalised opportunity data model (handbook §8.3), enrichment + scoring engine, mock inventory from VEBEG, Zoll-Auktion, Troostwijk, Domaine, AMW, e-vergabe |
+| `procurement_agent.py`     | Anthropic Claude agent with 7 tools: `current_date`, `list_opportunities`, `get_opportunity`, `score_opportunity`, `scrap_value`, `logistics_estimate`, `dual_use_check` |
+| `procurement_dashboard.py` | Streamlit dashboard - KPI strip, filters, sortable opportunity table, location map, score breakdown chart, JSON drawer, embedded chat with the agent |
+
+### Running the dashboard
+
+```bash
+streamlit run procurement_dashboard.py
+```
+
+The dashboard works without an API key (read-only data), but the embedded
+chat needs `ANTHROPIC_API_KEY` in `.env`.
+
+### Scoring rubric (handbook §8.4)
+
+The 0-100 attractiveness score is the sum of:
+
+* Margin between current bid and estimated market value (-30 .. +40)
+* Premium-brand bonus (Liebherr, Börger, Mercedes, MAN, ...) (0 / +10)
+* Proximity to home depot Hamburg (-10 .. +10)
+* Documentation / low operating hours despite high age (0 / +15)
+* Logistics penalty when transport > 25% of asset value (-15 / 0)
+* Risk penalties: red-flag terms, pre-1990 vessel, undeclared dual-use (...)
+
+plus a baseline of 30 points. Negative-value assets (wreck removal, weir
+deconstruction) are scored on the spread between contract value and our
+estimated remediation cost.
+
+### Bid-ceiling formula
+
+```
+positive_asset:  market - logistics - repair - 25%·market + scrap_credit
+negative_asset:  remediation - scrap_credit + 25%·remediation
+```
+
 ## Getting Started
 
 To run the project, follow these steps:
