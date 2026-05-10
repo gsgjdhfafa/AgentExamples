@@ -288,7 +288,7 @@ st.divider()
 
 # ---------------------------------------------------------------------------
 # Embedded chat with the procurement agent (lazy-imported so the dashboard
-# still works for users without an ANTHROPIC_API_KEY).
+# still works for users without a DEEPSEEK_API_KEY).
 # ---------------------------------------------------------------------------
 
 st.subheader("Chat mit dem Procurement Agent")
@@ -309,8 +309,9 @@ if st.session_state.get("agent_error"):
     st.warning(
         "Procurement Agent konnte nicht geladen werden: "
         f"{st.session_state['agent_error']}\n\n"
-        "Trage einen `ANTHROPIC_API_KEY` in `.env` ein und starte das "
-        "Dashboard neu, um den Chat zu aktivieren."
+        "Trage einen `DEEPSEEK_API_KEY` in `.env` ein und starte das "
+        "Dashboard neu, um den Chat zu aktivieren. "
+        "Key kostenlos unter https://platform.deepseek.com erhältlich."
     )
 elif st.session_state["agent"] is None:
     st.info("Agent nicht verfügbar.")

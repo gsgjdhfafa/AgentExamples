@@ -128,7 +128,7 @@ strategic handbook *"Beschaffung von Militär-/Feuerwehrausrüstung"*.
 |------|---------|
 | `procurement_prompts.py`   | Role / goal / instructions / domain knowledge for the agent |
 | `procurement_data.py`      | Normalised opportunity data model (handbook §8.3), enrichment + scoring engine, mock inventory from VEBEG, Zoll-Auktion, Troostwijk, Domaine, AMW, e-vergabe |
-| `procurement_agent.py`     | Anthropic Claude agent with 7 tools: `current_date`, `list_opportunities`, `get_opportunity`, `score_opportunity`, `scrap_value`, `logistics_estimate`, `dual_use_check` |
+| `procurement_agent.py`     | DeepSeek-V3 agent (OpenAI-compatible API, ~4x cheaper than Haiku) with 7 tools: `current_date`, `list_opportunities`, `get_opportunity`, `score_opportunity`, `scrap_value`, `logistics_estimate`, `dual_use_check`. Override the model via `PROCUREMENT_MODEL` env var. |
 | `procurement_dashboard.py` | Streamlit dashboard - KPI strip, filters, sortable opportunity table, location map, score breakdown chart, JSON drawer, embedded chat with the agent |
 
 ### Running the dashboard
@@ -137,8 +137,22 @@ strategic handbook *"Beschaffung von Militär-/Feuerwehrausrüstung"*.
 streamlit run procurement_dashboard.py
 ```
 
-The dashboard works without an API key (read-only data), but the embedded
-chat needs `ANTHROPIC_API_KEY` in `.env`.
+The dashboard works without an API key (read-only data, filters, scoring,
+map and JSON drawer all run on local logic). The embedded chat needs a
+`DEEPSEEK_API_KEY` in `.env` (free tier on https://platform.deepseek.com).
+To switch backends without code changes, swap to any OpenAI-compatible
+provider via env vars:
+
+```
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1   # default
+PROCUREMENT_MODEL=deepseek-chat                 # default
+
+# or point at OpenAI / Groq / Mistral instead:
+# DEEPSEEK_API_KEY=$OPENAI_API_KEY
+# DEEPSEEK_BASE_URL=https://api.openai.com/v1
+# PROCUREMENT_MODEL=gpt-4o-mini
+```
 
 ### Scoring rubric (handbook §8.4)
 
@@ -176,6 +190,7 @@ To run the project, follow these steps:
 TAVILY_API_KEY="put your tavily key in here"
 OPENAI_API_KEY="put your OpenAI key in here"
 ANTHROPIC_API_KEY="put your Anthropic key in here"
+DEEPSEEK_API_KEY="put your DeepSeek key in here"   # for procurement_agent.py
 ```
 7.  Run the Streamlit app: `streamlit run agent-ui.py`
 
