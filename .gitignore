@@ -3,3 +3,9 @@ __pycache__/
 .env
 .venv/
 .streamlit/secrets.toml
+
+# Runtime data for the procurement agent
+procurement.db
+*.sqlite
+*.sqlite-journal
+.pytest_cache/

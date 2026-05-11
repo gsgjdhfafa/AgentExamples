@@ -30,12 +30,25 @@ from typing import Iterable
 # Approx LME-derived spot prices in EUR / tonne (handbook section 6.2).
 # Treated as constants here; in production these would be fetched daily.
 SCRAP_PRICES_EUR_PER_TONNE = {
+    # Ferrous and base non-ferrous (LME / national scrap exchanges).
     "STEEL_HMS_1_2": 350.0,
     "STEEL_ST37": 320.0,
     "MIXED_FERROUS": 290.0,
     "COPPER": 7800.0,
     "ALUMINIUM": 1900.0,
     "STAINLESS_304": 1200.0,
+    "LEAD": 1900.0,
+    # Precious metals (LBMA spot, conservative). High denominations because the
+    # weights are stored in kg, so 1 t = 1000 kg = 1e6 g.
+    "SILVER": 850_000.0,        # ~0.85 EUR/g
+    "GOLD": 60_000_000.0,       # ~60 EUR/g
+    "PLATINUM": 30_000_000.0,
+    "PALLADIUM": 25_000_000.0,
+    # Coin / numismatic scrap. Conservative average of melt value over a
+    # typical mixed lot (silver coins + base metal). The bargain comes when
+    # listings include rare coins not priced into the bulk weight.
+    "COIN_SCRAP_MIXED": 35_000.0,   # 35 EUR/kg average melt value
+    "COIN_SCRAP_SILVER": 600_000.0, # mostly silver content (e.g. pre-1965 DM, US dimes)
 }
 
 # Premium brands that get a positive score nudge (handbook section 8.4).
@@ -689,6 +702,93 @@ _SAMPLE: list[Opportunity] = [
         year_built=1998,
         found_at=_utc(2026, 4, 25),
         auction_end=_utc(2026, 6, 1),
+    ),
+    Opportunity(
+        asset_id="ZOLL-2026-MUENZ-0091",
+        source_platform="ZOLL",
+        listing_url="https://www.zoll-auktion.de/auktion/details.php?ID=MUENZ-0091",
+        type="POSITIVE_ASSET",
+        category="COIN_SCRAP",
+        title_normalized="Pfandsachen-Konvolut Muenzen ueberwiegend Silber, 18 kg",
+        description=(
+            "Beschlagnahmte Pfandsachen, Pfandleihhaus-Aufloesung. Ca. 18 kg "
+            "Muenzen, ueberwiegend Silberscheidemuenzen Vor-Euro (5-DM-Silber, "
+            "10-DM-Gedenk, oesterreichische 25-Schilling, US dimes pre-1965). "
+            "Inventar dokumentiert. Schmelzwert deutlich ueber dem Startpreis."
+        ),
+        location=Location("DE", "10999", "Berlin", 52.5200, 13.4050),
+        financials=Financials(
+            current_bid=4200.0,
+            bid_type="ENGLISH",
+            estimated_market_value=11500.0,
+            scrap_material="COIN_SCRAP_SILVER",
+            weight_kg=18,
+            repair_opex_estimate=0.0,
+        ),
+        risk_factors=RiskFactors(),
+        brands=[],
+        operating_hours=None,
+        year_built=None,
+        found_at=_utc(2026, 5, 7),
+        auction_end=_utc(2026, 5, 19, 18),
+    ),
+    Opportunity(
+        asset_id="NETBID-INSO-2026-9912",
+        source_platform="NETBID",
+        listing_url="https://www.netbid.com/de/auction/inso-9912",
+        type="POSITIVE_ASSET",
+        category="TUG_EQUIPMENT",
+        title_normalized="Hydraulik-Schleppwinde Markey TDS-32 (Hafenschlepper-Aufloesung)",
+        description=(
+            "Hydraulische Schleppwinde Markey TDS-32, 32 t Zugkraft, "
+            "Bj. 2012, ca. 2400 Betriebsstunden. Aus der Aufloesung einer "
+            "norddeutschen Schleppreederei. Komplett mit Trommeln, Pneumatik, "
+            "Notbremse. Ideal als Ersatz fuer aeltere Triton-/Schleppertypen."
+        ),
+        location=Location("DE", "26789", "Leer", 53.2293, 7.4528),
+        financials=Financials(
+            current_bid=18500.0,
+            bid_type="ENGLISH",
+            estimated_market_value=58000.0,
+            scrap_material="STEEL_HMS_1_2",
+            weight_kg=4200,
+            repair_opex_estimate=2200.0,
+        ),
+        risk_factors=RiskFactors(),
+        brands=["Markey"],
+        operating_hours=2400,
+        year_built=2012,
+        found_at=_utc(2026, 5, 4),
+        auction_end=_utc(2026, 5, 21, 16),
+    ),
+    Opportunity(
+        asset_id="SURPLEX-2026-VAN-4488",
+        source_platform="SURPLEX",
+        listing_url="https://www.surplex.com/de/m/vehicle-4488",
+        type="POSITIVE_ASSET",
+        category="VEHICLE",
+        title_normalized="Mercedes Sprinter 519 CDI Pritsche, Insolvenz Tiefbau",
+        description=(
+            "Mercedes Sprinter 519 CDI Doppelkabine Pritsche, EZ 2022, "
+            "84.000 km, Scheckheft, Insolvenzverwertung Tiefbaubetrieb. "
+            "Komplett mit Werkzeugkasten, Anhaengerkupplung 3.5 t. "
+            "MFK aktuell, keine Maengel."
+        ),
+        location=Location("DE", "70173", "Stuttgart", 48.7758, 9.1829),
+        financials=Financials(
+            current_bid=14500.0,
+            bid_type="SEALED_BID",
+            estimated_market_value=29500.0,
+            scrap_material="MIXED_FERROUS",
+            weight_kg=2400,
+            repair_opex_estimate=0.0,
+        ),
+        risk_factors=RiskFactors(),
+        brands=["Mercedes"],
+        operating_hours=None,
+        year_built=2022,
+        found_at=_utc(2026, 5, 6),
+        auction_end=_utc(2026, 5, 24, 17),
     ),
     Opportunity(
         asset_id="DOMAINE-FR-BREST-0034",

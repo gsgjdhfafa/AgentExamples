@@ -126,12 +126,17 @@ strategic handbook *"Beschaffung von Militär-/Feuerwehrausrüstung"*.
 
 | File | Purpose |
 |------|---------|
-| `procurement_prompts.py`   | Role / goal / instructions / domain knowledge for the agent |
-| `procurement_data.py`      | Normalised opportunity data model (handbook §8.3), enrichment + scoring engine, curated mock inventory (14 lots from VEBEG, Zoll-Auktion, Troostwijk, Domaine, AMW, e-vergabe, NetBid, Fornæs) |
-| `procurement_sources.py`   | Live adapters (`ZollAuktionAdapter`, `TedTendersAdapter`, `MockAdapter`) with timeout + offline fallback. Aggregator deduplicates by `asset_id`. Set `PROCUREMENT_OFFLINE=1` to disable network. |
-| `procurement_agent.py`     | DeepSeek-V3 agent (OpenAI-compatible API, ~4x cheaper than Haiku) with 7 tools: `current_date`, `list_opportunities`, `get_opportunity`, `score_opportunity`, `scrap_value`, `logistics_estimate`, `dual_use_check`. Override the model via `PROCUREMENT_MODEL` env var. |
-| `procurement_dashboard.py` | Streamlit dashboard - alert banner for Score ≥ 80, configurable home depot / margin / €/km, watchlist, CSV export, location map, score breakdown chart, JSON drawer, data-source status strip, embedded chat with the agent |
+| `procurement_prompts.py`   | Role / goal / instructions / domain knowledge for the chat agent |
+| `procurement_data.py`      | Normalised opportunity data model (handbook §8.3), enrichment + scoring engine, curated mock inventory (17 lots including coin-scrap, tug-winch, brownfield-with-subsidy across VEBEG, Zoll, Troostwijk, Domaine, AMW, e-vergabe, NetBid, Surplex, Fornæs) |
+| `procurement_sources.py`   | Live adapters (`ZollAuktionAdapter`, `TedTendersAdapter`, `MockAdapter`) with timeout + offline fallback. Set `PROCUREMENT_OFFLINE=1` to disable network. |
+| `procurement_store.py`     | SQLite persistence: `decisions` (Ja/Nein/Später per asset_id), `observations` (historical final auction prices), `agent_runs` (audit log). Path via `PROCUREMENT_DB` env var. |
+| `procurement_learner.py`   | Bargain learner: turns operator decisions into per-category score bonuses (max ±12 points) and observed final-price ratios into market-value correction multipliers (clamped 0.5x – 1.5x). |
+| `procurement_agents.py`    | Multi-agent registry with five specialists: `Generalist`, `BargainHunter`, `ScrapMaximizer`, `PreciousMetalsHunter`, `TritonMaritime`. Each writes an `agent_runs` row on every scan. |
+| `procurement_alerts.py`    | Email (SMTP) + webhook dispatchers, configured exclusively via env vars so no secrets land in the repo. No-ops if unconfigured. |
+| `procurement_agent.py`     | DeepSeek-V3 chat agent (OpenAI-compatible API, ~4x cheaper than Haiku) with 7 tools: `current_date`, `list_opportunities`, `get_opportunity`, `score_opportunity`, `scrap_value`, `logistics_estimate`, `dual_use_check`. Override the model via `PROCUREMENT_MODEL` env var. |
+| `procurement_dashboard.py` | Streamlit dashboard with 6 tabs: **Hot Deals** (Ja/Nein/Später cards from every specialist), **Pipeline** (filterable table + map + CSV), **Agent Monitor** (live status + run history), **Lerner** (what the learner believes), **Alerts** (test dispatch, configuration check), **Chat** (free-form). Configurable target margin, €/km, Hot-Deal-Schwelle. |
 | `tests/test_procurement_data.py` | 32 pytest tests covering haversine, scrap value, logistics, red-flag detection, dual-use detection, scoring rubric, bid-ceiling formula, search filters and NAV math |
+| `tests/test_procurement_store.py` | 13 pytest tests covering decision persistence, observation ratios, agent-run logging, last-run-per-agent and the bargain learner (neutral prior, positive bias, market-correction clamping) |
 
 ### Running the dashboard
 
@@ -142,7 +147,55 @@ streamlit run procurement_dashboard.py
 ### Running the test suite
 
 ```bash
-pytest tests/test_procurement_data.py -v
+pytest tests/ -v
+```
+
+### Optional alert configuration
+
+```
+# Email
+PROCUREMENT_ALERT_SMTP_HOST=smtp.example.com
+PROCUREMENT_ALERT_SMTP_PORT=587
+PROCUREMENT_ALERT_SMTP_USER=alerts@example.com
+PROCUREMENT_ALERT_SMTP_PASSWORD=...
+PROCUREMENT_ALERT_FROM=alerts@example.com
+PROCUREMENT_ALERT_TO=ops@example.com,backup@example.com
+
+# Slack / Discord / Teams / custom webhook
+PROCUREMENT_ALERT_WEBHOOK=https://hooks.slack.com/services/...
+```
+
+### Architecture overview
+
+```
+                              ┌──────────────────────────┐
+  external feeds              │  procurement_sources.py  │
+  ZollAPI · TED · Mock  ───▶  │  aggregate() + reports   │
+                              └────────────┬─────────────┘
+                                           ▼
+                              ┌──────────────────────────┐
+                              │   procurement_data.py    │
+                              │  enrich() + score() +    │
+                              │  bid_ceiling()           │
+                              └────────────┬─────────────┘
+                                           ▼
+        ┌─────────────────────────────────────────────────────┐
+        │              procurement_learner.py                 │
+        │  decision-driven fit_bonus + obs-driven correction  │
+        └────────────────────────┬────────────────────────────┘
+                                 ▼
+                  ┌──────────────────────────┐
+                  │  procurement_agents.py   │
+                  │  5 specialists × scan()  │
+                  └────────────┬─────────────┘
+                               ▼
+        ┌──────────────────────────────────────────────┐
+        │           procurement_dashboard.py           │
+        │  6 tabs · Ja/Nein cards · CSV · Watchlist    │
+        └────────────┬───────────────────┬─────────────┘
+                     ▼                   ▼
+          procurement_store.py    procurement_alerts.py
+          (SQLite persistence)    (SMTP + webhook)
 ```
 
 The dashboard works without an API key (read-only data, filters, scoring,

@@ -1,19 +1,28 @@
-"""Procurement dashboard for the EU public-sector / military / firefighter
-surplus opportunity feed.
+"""EU Procurement Intelligence Dashboard.
 
-Run it with::
+Multi-tab Streamlit app for monitoring opportunities and the specialist
+agents that surface them.
+
+Tabs:
+
+  1. **Hot Deals**     - one card per top recommendation across all specialist
+                         agents. The operator decides JA / NEIN / SPAETER per
+                         asset. Decisions are persisted to SQLite and feed the
+                         bargain learner.
+  2. **Pipeline**      - full filterable / sortable list with map, detail
+                         drawer, CSV export and the bid-ceiling derivation.
+  3. **Agent-Monitor** - live status of every specialist (last run, found,
+                         hot count, top pick) + run history.
+  4. **Lerner**        - what the bargain learner currently believes per
+                         category, with sample counts.
+  5. **Alerts**        - threshold settings, send-test-alert buttons and
+                         dispatch reports per channel.
+  6. **Chat**          - free-form chat with the DeepSeek-backed agent that
+                         can hit all the procurement tools.
+
+Launch with::
 
     streamlit run procurement_dashboard.py
-
-Panels:
-  * KPI strip            - portfolio totals (count, NAV, alert count)
-  * Alert banner         - lists any Score > 80 opportunities w/ deadline
-  * Settings sidebar     - home depot, target margin, EUR/km, live/offline
-  * Filter sidebar       - country / category / type / platform / score
-  * Opportunity table    - sortable, with star/watchlist toggle and CSV export
-  * Detail drawer        - normalised JSON + score breakdown + map +
-                           embedded chat with the procurement agent
-  * Data sources strip   - per-adapter status (Zoll / TED / mock)
 """
 
 from __future__ import annotations
@@ -25,8 +34,12 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
+import procurement_agents as pagents
+import procurement_alerts as palerts
 import procurement_data as pdata
+import procurement_learner as plearner
 import procurement_sources as psources
+import procurement_store as pstore
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +73,13 @@ st.markdown(
         background:#fff3cd; border-left:4px solid #f59e0b;
         padding:8px 14px; border-radius:6px; margin-bottom:12px;
     }
+    .agent-card {
+        background: #f8f9fc; border:1px solid #e1e4eb; border-radius:8px;
+        padding:14px; margin-bottom:14px;
+    }
+    .verdict-yes  { color:#0a7d33; font-weight:600; }
+    .verdict-no   { color:#b00020; font-weight:600; }
+    .verdict-later { color:#8a6d3b; font-weight:600; }
     .source-ok    { color:#0a7d33; font-weight:600; }
     .source-fail  { color:#b00020; font-weight:600; }
     </style>
@@ -69,14 +89,15 @@ st.markdown(
 
 st.title("EU Procurement Intelligence Dashboard")
 st.caption(
-    "Akquise von Behörden-, Militär-, Feuerwehr- und Wasserbauausrüstung — "
-    "Score-getriebene Übersicht aus VEBEG, Zoll-Auktion, Troostwijk, "
-    "Domaine, AMW, TED und e-vergabe."
+    "Akquise von Behörden-, Militär-, Feuerwehr-, Wasserbau- und "
+    "Edelmetall-Beständen — Score-getriebene Übersicht aus VEBEG, "
+    "Zoll-Auktion, Troostwijk, Domaine, AMW, TED, e-vergabe, NetBid, "
+    "Surplex und Fornæs."
 )
 
 
 # ---------------------------------------------------------------------------
-# Persistent settings
+# Sidebar - global settings (apply to every tab)
 # ---------------------------------------------------------------------------
 
 st.sidebar.header("Einstellungen")
@@ -87,6 +108,10 @@ target_margin = st.sidebar.slider(
 eur_per_km = st.sidebar.slider(
     "Transportkosten (€/km)", 0.5, 5.0, 2.20, 0.10,
     help="Spezialtransport, Heavy-Haul. Über 5 t kommt +30 % Aufschlag drauf.",
+)
+hot_score = st.sidebar.slider(
+    "Hot-Deal-Schwelle (Score)", 50, 100, 80, 5,
+    help="Score ab dem ein Asset im Hot-Deals Tab erscheint und Alerts auslöst.",
 )
 live_mode = st.sidebar.toggle(
     "Live-Datenquellen abfragen",
@@ -102,18 +127,16 @@ st.sidebar.divider()
 
 @st.cache_data(ttl=120)
 def load_opportunities(live: bool, eur_km: float, margin: float):
-    """Fetch from all enabled adapters, then re-enrich with current settings."""
     if live:
         adapters = psources.default_adapters()
     else:
         adapters = [psources.MockAdapter()]
     opps, reports = psources.aggregate(adapters)
-    # Re-enrich with the user's current logistics + margin settings so the
-    # bid-ceiling and NAV reflect the live sliders.
     for o in opps:
         o.logistics_cost_estimate = pdata.estimate_logistics_cost(o, eur_km)
         o.scrap_value_potential = pdata.estimate_scrap_value(o)
-        o.score, o.score_breakdown = pdata.score_opportunity(o)
+        # learner adjusts both market value (in place) and score
+        o.score, o.score_breakdown = plearner.apply_learning(o)
         o.bid_ceiling = pdata.compute_bid_ceiling(o, margin)
         if o.type == "POSITIVE_ASSET":
             o.net_asset_value = round(
@@ -135,218 +158,263 @@ def load_opportunities(live: bool, eur_km: float, margin: float):
 
 
 opps, reports = load_opportunities(live_mode, eur_per_km, target_margin)
+now = datetime.now(timezone.utc)
+
 
 # ---------------------------------------------------------------------------
-# Watchlist (per-session)
+# Session state
 # ---------------------------------------------------------------------------
 
 if "watchlist" not in st.session_state:
     st.session_state["watchlist"] = set()
 
 
-def toggle_watchlist(asset_id: str):
-    wl = st.session_state["watchlist"]
-    if asset_id in wl:
-        wl.remove(asset_id)
-    else:
-        wl.add(asset_id)
-
-
 # ---------------------------------------------------------------------------
-# Sidebar filters
+# Top KPI strip (always visible)
 # ---------------------------------------------------------------------------
 
-st.sidebar.header("Filter")
+k1, k2, k3, k4, k5 = st.columns(5)
+positive = [o for o in opps if o.type == "POSITIVE_ASSET"]
+negative = [o for o in opps if o.type == "NEGATIVE_ASSET"]
+hot = [o for o in opps if o.score >= hot_score and o.auction_end > now]
 
-countries = sorted({o.location.country for o in opps if o.location.country})
-categories = sorted({o.category for o in opps if o.category})
-platforms = sorted({o.source_platform for o in opps})
-asset_types = ["POSITIVE_ASSET", "NEGATIVE_ASSET"]
-
-flt_country = st.sidebar.multiselect("Land", countries, default=countries)
-flt_category = st.sidebar.multiselect("Kategorie", categories, default=categories)
-flt_platform = st.sidebar.multiselect("Plattform", platforms, default=platforms)
-flt_type = st.sidebar.multiselect(
-    "Asset-Typ", asset_types,
-    default=asset_types,
-    format_func=lambda x: "Positiv (Erwerb)" if x == "POSITIVE_ASSET" else "Negativ (Mitgift)",
-)
-flt_min_score = st.sidebar.slider("Mindest-Score", 0, 100, 0, 5)
-flt_keyword = st.sidebar.text_input("Stichwort (Titel/Beschreibung)", "")
-flt_only_watch = st.sidebar.toggle(
-    f"Nur Watchlist ({len(st.session_state['watchlist'])})",
-    value=False,
-)
-
-st.sidebar.divider()
-st.sidebar.subheader("Heimat-Depot")
-st.sidebar.write(f"{pdata.HOME_DEPOT[0]}, {pdata.HOME_DEPOT[1]}")
-st.sidebar.caption(
-    f"Logistik wird ab hier mit {eur_per_km:.2f} €/km berechnet "
-    "(+30 % über 5 t)."
-)
-
-
-def passes_filters(o: pdata.Opportunity) -> bool:
-    if flt_country and o.location.country not in flt_country:
-        return False
-    if flt_category and o.category not in flt_category:
-        return False
-    if flt_platform and o.source_platform not in flt_platform:
-        return False
-    if flt_type and o.type not in flt_type:
-        return False
-    if o.score < flt_min_score:
-        return False
-    if flt_keyword:
-        blob = (o.title_normalized + " " + o.description).lower()
-        if flt_keyword.lower() not in blob:
-            return False
-    if flt_only_watch and o.asset_id not in st.session_state["watchlist"]:
-        return False
-    return True
-
-
-filtered = [o for o in opps if passes_filters(o)]
-
-
-# ---------------------------------------------------------------------------
-# Alert banner (score > 80, deadline within 14 days)
-# ---------------------------------------------------------------------------
-
-now = datetime.now(timezone.utc)
-alerts = [
-    o for o in opps
-    if o.score >= 80 and (o.auction_end - now).days <= 14 and o.auction_end > now
-]
-if alerts:
-    lines = []
-    for o in alerts[:5]:
-        days_left = (o.auction_end - now).days
-        nav = f"{o.net_asset_value:,.0f}".replace(",", ".")
-        lines.append(
-            f"<li><b>{o.title_normalized}</b> · Score {o.score} · "
-            f"NAV {nav} € · noch <b>{days_left} Tage</b> · "
-            f"<code>{o.asset_id}</code></li>"
-        )
-    extra = (f"<br><small>… und {len(alerts) - 5} weitere</small>"
-             if len(alerts) > 5 else "")
-    st.markdown(
-        f"<div class='alert-strip'>"
-        f"<b>🔔 {len(alerts)} Hot-Deal Alert(s)</b> — Score ≥ 80, "
-        f"Auktion endet in ≤ 14 Tagen:<ul>{''.join(lines)}</ul>{extra}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Build the dataframe
-# ---------------------------------------------------------------------------
-
-def opp_to_row(o: pdata.Opportunity) -> dict:
-    days_left = (o.auction_end - now).days
-    red_flags = pdata.detect_red_flags(o)
-    star = "★" if o.asset_id in st.session_state["watchlist"] else "☆"
-    return {
-        "★": star,
-        "asset_id": o.asset_id,
-        "Score": o.score,
-        "Titel": o.title_normalized,
-        "Typ": "POS" if o.type == "POSITIVE_ASSET" else "NEG",
-        "Kategorie": o.category,
-        "Plattform": o.source_platform,
-        "Land": o.location.country,
-        "Stadt": o.location.city,
-        "Aktuelles Gebot (EUR)": o.financials.current_bid,
-        "NAV (EUR)": o.net_asset_value,
-        "Bid-Limit (EUR)": o.bid_ceiling,
-        "Tage übrig": days_left,
-        "Red Flags": ", ".join(red_flags) if red_flags else "",
-    }
-
-
-df_filtered = (
-    pd.DataFrame(opp_to_row(o) for o in filtered)
-    .sort_values(by=["Score", "Tage übrig"], ascending=[False, True])
-    if filtered else pd.DataFrame()
-)
-
-
-# ---------------------------------------------------------------------------
-# KPI strip
-# ---------------------------------------------------------------------------
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric("Opportunities (gefiltert)", len(filtered))
-with col2:
-    nav_total = sum(o.net_asset_value for o in filtered if o.type == "POSITIVE_ASSET")
-    st.metric("NAV Σ (Positive)", f"{nav_total:,.0f} €".replace(",", "."))
-with col3:
-    neg_margin = sum(
-        o.financials.current_bid - o.financials.remediation_cost_estimate
-        for o in filtered if o.type == "NEGATIVE_ASSET"
-    )
-    st.metric("Marge Σ (Negative)", f"{neg_margin:,.0f} €".replace(",", "."))
-with col4:
-    st.metric("Hot Deals (Score ≥ 80)", sum(1 for o in filtered if o.score >= 80))
+with k1: st.metric("Opportunities (Inventar)", len(opps))
+with k2: st.metric("Hot Deals (Score ≥ %d)" % hot_score, len(hot))
+with k3:
+    st.metric("NAV Σ (Positive)",
+              f"{sum(o.net_asset_value for o in positive):,.0f} €".replace(",", "."))
+with k4:
+    decisions = pstore.all_decisions()
+    yes_n = sum(1 for d in decisions if d.verdict == "YES")
+    st.metric("Bestätigte Käufe", yes_n)
+with k5:
+    runs = pstore.recent_runs(50)
+    st.metric("Agent-Läufe gesamt", len(runs))
 
 st.divider()
 
+
 # ---------------------------------------------------------------------------
-# Main two-column layout
+# Tabs
 # ---------------------------------------------------------------------------
 
-left, right = st.columns([1.4, 1])
+tab_hot, tab_pipeline, tab_monitor, tab_learn, tab_alerts, tab_chat = st.tabs([
+    "🔥 Hot Deals",
+    "📋 Pipeline",
+    "🤖 Agent-Monitor",
+    "🧠 Lerner",
+    "🔔 Alerts",
+    "💬 Chat",
+])
 
-with left:
-    header_col, export_col = st.columns([3, 1])
-    header_col.subheader("Opportunity-Pipeline")
-    if not df_filtered.empty:
-        csv_buf = io.StringIO()
-        df_filtered.drop(columns=["asset_id", "★"]).to_csv(
-            csv_buf, index=False, sep=";", decimal=","
-        )
-        export_col.download_button(
-            "CSV exportieren",
-            csv_buf.getvalue().encode("utf-8-sig"),
-            file_name=f"procurement_pipeline_{now:%Y%m%d_%H%M}.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
+
+# ---------------------------------------------------------------------------
+# TAB 1 - Hot Deals: one card per agent recommendation, JA/NEIN/SPAETER
+# ---------------------------------------------------------------------------
+
+with tab_hot:
+    st.markdown(
+        "Jede Karte ist die Top-Empfehlung eines Spezialisten. "
+        "Klicke **Ja** zum Kaufen-Markieren, **Nein** zum Verwerfen, "
+        "**Später** für die Watchlist. Entscheidungen trainieren den Lerner."
+    )
+
+    if st.button("Spezialisten jetzt scannen", type="primary"):
+        st.cache_data.clear()  # so the next render re-runs the load
+        results_run = pagents.run_all(opps, record=True)
+        st.session_state["agent_results"] = results_run
+        st.success(f"{sum(len(r) for r in results_run.values())} "
+                   "Empfehlungen aus 5 Spezialisten.")
+    else:
+        # Fresh run for the current opps (not recorded so no log spam)
+        if "agent_results" not in st.session_state:
+            st.session_state["agent_results"] = pagents.run_all(
+                opps, record=False
+            )
+
+    results = st.session_state["agent_results"]
+
+    # Render: one expander per agent with up to 3 cards
+    for agent_name, recs in results.items():
+        spec = next(s for s in pagents.ALL_SPECIALISTS if s.name == agent_name)
+        with st.expander(
+            f"**{agent_name}** — {spec.description}  "
+            f"·  {len(recs)} Empfehlung(en)",
+            expanded=(agent_name == "Generalist"),
+        ):
+            if not recs:
+                st.info("Aktuell keine passenden Lots.")
+                continue
+            for rec in recs[:3]:
+                o = rec.opportunity
+                existing = pstore.get_decision(o.asset_id)
+                with st.container(border=True):
+                    a, b = st.columns([3, 1])
+                    a.markdown(
+                        f"#### {o.title_normalized}  "
+                        f"<span class='score-pill'>Score {o.score}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    if existing:
+                        cls = {"YES": "verdict-yes", "NO": "verdict-no",
+                               "LATER": "verdict-later"}[existing.verdict]
+                        b.markdown(
+                            f"<span class='{cls}'>Entscheidung: "
+                            f"{existing.verdict}</span>",
+                            unsafe_allow_html=True,
+                        )
+                    a.write(f"**{o.source_platform}** · {o.category} · "
+                            f"{o.location.city}, {o.location.country} · "
+                            f"Auktion endet {o.auction_end:%d.%m.%Y %H:%M}")
+                    a.write(f"_{rec.rationale}_")
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Aktuelles Gebot",
+                              f"{o.financials.current_bid:,.0f} €".replace(",", "."))
+                    m2.metric("Bid-Limit",
+                              f"{o.bid_ceiling:,.0f} €".replace(",", "."))
+                    m3.metric("Net Asset Value",
+                              f"{o.net_asset_value:,.0f} €".replace(",", "."))
+                    m4.metric("Confidence", f"{rec.confidence}/100")
+
+                    risks = pdata.detect_red_flags(o)
+                    if risks or pdata.detect_dual_use(o):
+                        flags = ", ".join(risks) or ""
+                        if pdata.detect_dual_use(o):
+                            flags = (flags + ", " if flags else "") + "Dual-Use"
+                        st.markdown(f"<span class='red-flag'>⚠ {flags}</span>",
+                                    unsafe_allow_html=True)
+
+                    btn1, btn2, btn3, btn4 = st.columns(4)
+                    if btn1.button("✅ Ja", key=f"yes_{agent_name}_{o.asset_id}"):
+                        pstore.record_decision(
+                            o.asset_id, "YES",
+                            category=o.category, score=o.score,
+                            net_value=o.net_asset_value,
+                            rationale=rec.rationale,
+                        )
+                        st.rerun()
+                    if btn2.button("❌ Nein", key=f"no_{agent_name}_{o.asset_id}"):
+                        pstore.record_decision(
+                            o.asset_id, "NO",
+                            category=o.category, score=o.score,
+                            net_value=o.net_asset_value,
+                            rationale=rec.rationale,
+                        )
+                        st.rerun()
+                    if btn3.button("⏳ Später",
+                                   key=f"later_{agent_name}_{o.asset_id}"):
+                        pstore.record_decision(
+                            o.asset_id, "LATER",
+                            category=o.category, score=o.score,
+                            net_value=o.net_asset_value,
+                            rationale=rec.rationale,
+                        )
+                        st.session_state["watchlist"].add(o.asset_id)
+                        st.rerun()
+                    btn4.link_button("🔗 Listing", o.listing_url)
+
+
+# ---------------------------------------------------------------------------
+# TAB 2 - Pipeline (sortable table + map + detail drawer + CSV export)
+# ---------------------------------------------------------------------------
+
+with tab_pipeline:
+    st.subheader("Filter")
+    fc1, fc2, fc3, fc4 = st.columns(4)
+    countries = sorted({o.location.country for o in opps if o.location.country})
+    categories = sorted({o.category for o in opps if o.category})
+    platforms = sorted({o.source_platform for o in opps})
+    asset_types = ["POSITIVE_ASSET", "NEGATIVE_ASSET"]
+
+    flt_country = fc1.multiselect("Land", countries, default=countries)
+    flt_category = fc2.multiselect("Kategorie", categories, default=categories)
+    flt_platform = fc3.multiselect("Plattform", platforms, default=platforms)
+    flt_type = fc4.multiselect(
+        "Asset-Typ", asset_types,
+        default=asset_types,
+        format_func=lambda x: "Positiv" if x == "POSITIVE_ASSET" else "Negativ",
+    )
+
+    g1, g2, g3 = st.columns([2, 2, 1])
+    flt_min_score = g1.slider("Mindest-Score", 0, 100, 0, 5)
+    flt_keyword = g2.text_input("Stichwort (Titel/Beschreibung)", "")
+    flt_only_watch = g3.toggle(
+        f"Watchlist ({len(st.session_state['watchlist'])})", value=False,
+    )
+
+    def passes(o):
+        if flt_country and o.location.country not in flt_country: return False
+        if flt_category and o.category not in flt_category: return False
+        if flt_platform and o.source_platform not in flt_platform: return False
+        if flt_type and o.type not in flt_type: return False
+        if o.score < flt_min_score: return False
+        if flt_keyword:
+            blob = (o.title_normalized + " " + o.description).lower()
+            if flt_keyword.lower() not in blob: return False
+        if flt_only_watch and o.asset_id not in st.session_state["watchlist"]:
+            return False
+        return True
+
+    filtered = [o for o in opps if passes(o)]
+
+    def opp_to_row(o):
+        days_left = (o.auction_end - now).days
+        return {
+            "★": "★" if o.asset_id in st.session_state["watchlist"] else "☆",
+            "asset_id": o.asset_id,
+            "Score": o.score,
+            "Titel": o.title_normalized,
+            "Typ": "POS" if o.type == "POSITIVE_ASSET" else "NEG",
+            "Kategorie": o.category,
+            "Plattform": o.source_platform,
+            "Land": o.location.country,
+            "Stadt": o.location.city,
+            "Gebot (€)": o.financials.current_bid,
+            "NAV (€)": o.net_asset_value,
+            "Bid-Limit (€)": o.bid_ceiling,
+            "Tage": days_left,
+            "Red Flags": ", ".join(pdata.detect_red_flags(o)),
+        }
+
+    df_filtered = (
+        pd.DataFrame(opp_to_row(o) for o in filtered)
+        .sort_values(by=["Score", "Tage"], ascending=[False, True])
+        if filtered else pd.DataFrame()
+    )
 
     if df_filtered.empty:
-        st.info("Keine Opportunities passen zum aktuellen Filter.")
+        st.info("Keine Opportunities im Filter.")
     else:
         st.dataframe(
             df_filtered.drop(columns=["asset_id"]),
-            use_container_width=True,
-            hide_index=True,
+            use_container_width=True, hide_index=True,
             column_config={
                 "★": st.column_config.TextColumn(width="small"),
                 "Score": st.column_config.ProgressColumn(
-                    "Score", min_value=0, max_value=100, format="%d"
-                ),
-                "Aktuelles Gebot (EUR)": st.column_config.NumberColumn(format="€ %d"),
-                "NAV (EUR)": st.column_config.NumberColumn(format="€ %d"),
-                "Bid-Limit (EUR)": st.column_config.NumberColumn(format="€ %d"),
+                    "Score", min_value=0, max_value=100, format="%d"),
+                "Gebot (€)": st.column_config.NumberColumn(format="€ %d"),
+                "NAV (€)": st.column_config.NumberColumn(format="€ %d"),
+                "Bid-Limit (€)": st.column_config.NumberColumn(format="€ %d"),
             },
         )
-
-        # Map
-        st.subheader("Standorte")
-        map_df = pd.DataFrame(
-            {
-                "lat": [o.location.lat for o in filtered if o.location.lat],
-                "lon": [o.location.lon for o in filtered if o.location.lon],
-            }
+        cbuf = io.StringIO()
+        df_filtered.drop(columns=["asset_id", "★"]).to_csv(
+            cbuf, index=False, sep=";", decimal=",")
+        st.download_button(
+            "CSV exportieren",
+            cbuf.getvalue().encode("utf-8-sig"),
+            file_name=f"procurement_pipeline_{now:%Y%m%d_%H%M}.csv",
+            mime="text/csv",
         )
+
+        st.subheader("Standorte")
+        map_df = pd.DataFrame({
+            "lat": [o.location.lat for o in filtered if o.location.lat],
+            "lon": [o.location.lon for o in filtered if o.location.lon],
+        })
         if not map_df.empty:
             st.map(map_df, size=20, zoom=3)
 
-        # Detail selector + watchlist button
         st.subheader("Detailansicht")
         sel_col, watch_col = st.columns([4, 1])
         choice = sel_col.selectbox(
@@ -357,112 +425,280 @@ with left:
                 + f"{aid} — {pdata.get(aid).title_normalized if pdata.get(aid) else aid}"
             ),
         )
-        st.session_state["selected_asset"] = choice
         in_watch = choice in st.session_state["watchlist"]
         if watch_col.button(
-            "★ Watchlist entfernen" if in_watch else "☆ Watchlist hinzufügen",
+            "★ Aus Watchlist" if in_watch else "☆ Zur Watchlist",
             use_container_width=True,
         ):
-            toggle_watchlist(choice)
+            wl = st.session_state["watchlist"]
+            (wl.remove if in_watch else wl.add)(choice)
             st.rerun()
 
-with right:
-    selected_id = st.session_state.get("selected_asset")
-    o = pdata.get(selected_id) if selected_id else None
-    if o is None and filtered:
-        o = filtered[0]
+        o = pdata.get(choice)
+        if o:
+            st.markdown(f"### {o.title_normalized}")
+            st.markdown(
+                f"<span class='score-pill'>Score {o.score}</span> "
+                f"&nbsp;·&nbsp; **{o.source_platform}** · {o.category} · "
+                f"{o.location.city or '—'}, {o.location.country}",
+                unsafe_allow_html=True,
+            )
+            st.markdown(f"[Listing öffnen]({o.listing_url})")
+            st.write(o.description)
+            if o.score_breakdown:
+                st.bar_chart(pd.DataFrame({"Punkte": o.score_breakdown}))
+            with st.expander("Bid-Limit Herleitung (Handbuch §9)"):
+                if o.type == "POSITIVE_ASSET":
+                    st.write({
+                        "Marktwert (learner-korrigiert)":
+                            o.financials.estimated_market_value,
+                        "- Logistik": -o.logistics_cost_estimate,
+                        "- Reparatur OPEX": -o.financials.repair_opex_estimate,
+                        f"- Zielmarge ({target_margin*100:.0f}%)":
+                            -target_margin * o.financials.estimated_market_value,
+                        "+ Schrott-Credit": o.scrap_value_potential,
+                        "= Bid-Limit": o.bid_ceiling,
+                    })
+                else:
+                    st.write({
+                        "Sanierungskosten": o.financials.remediation_cost_estimate,
+                        "- Schrott-Credit": -o.scrap_value_potential,
+                        f"+ Zielmarge ({target_margin*100:.0f}%)":
+                            target_margin * o.financials.remediation_cost_estimate,
+                        "= Mindestvergütung": o.bid_ceiling,
+                    })
+            with st.expander("Vollständiges JSON (Schema Handbuch §8.3)"):
+                st.json(pdata.to_dict(o))
 
-    if o is None:
-        st.info("Wähle links ein Asset, um Details zu sehen.")
+
+# ---------------------------------------------------------------------------
+# TAB 3 - Agent-Monitor
+# ---------------------------------------------------------------------------
+
+with tab_monitor:
+    st.subheader("Spezialisten-Status")
+    last = pstore.last_run_per_agent()
+    cols = st.columns(len(pagents.ALL_SPECIALISTS))
+    for col, spec in zip(cols, pagents.ALL_SPECIALISTS):
+        with col:
+            run = last.get(spec.name)
+            with st.container(border=True):
+                st.markdown(f"**{spec.name}**")
+                st.caption(spec.description)
+                if run and run.finished_at:
+                    delta = (now - run.finished_at).total_seconds()
+                    when = (f"vor {int(delta)} s" if delta < 60 else
+                            f"vor {int(delta/60)} min")
+                    st.write(f"Letzter Lauf: {when}")
+                    st.write(f"Gefunden: **{run.found_count}**, "
+                             f"Hot: **{run.hot_count}**")
+                    if run.top_asset_id:
+                        st.write(f"Top: `{run.top_asset_id}` "
+                                 f"(Score {run.top_score})")
+                else:
+                    st.write("Noch nicht ausgeführt.")
+
+    st.divider()
+    st.subheader("Lauf-Historie")
+    runs = pstore.recent_runs(30)
+    if runs:
+        df_runs = pd.DataFrame([{
+            "ID": r.id,
+            "Agent": r.agent_name,
+            "Start": r.started_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "Dauer (s)": ((r.finished_at - r.started_at).total_seconds()
+                          if r.finished_at else None),
+            "Gefunden": r.found_count,
+            "Hot": r.hot_count,
+            "Top-Asset": r.top_asset_id or "—",
+            "Top-Score": r.top_score,
+        } for r in runs])
+        st.dataframe(df_runs, use_container_width=True, hide_index=True)
     else:
-        st.markdown(f"### {o.title_normalized}")
-        type_chip = "<span class='neg-asset'>NEGATIVE ASSET</span>" \
-            if o.type == "NEGATIVE_ASSET" else ""
-        st.markdown(
-            f"<span class='score-pill'>Score {o.score}</span> "
-            f"&nbsp;·&nbsp; **{o.source_platform}** · {o.category} · "
-            f"{o.location.city or '—'}, {o.location.country} {type_chip}",
-            unsafe_allow_html=True,
+        st.info("Noch keine Läufe protokolliert.")
+
+    st.subheader("Entscheidungs-Log")
+    decisions = pstore.all_decisions()
+    if decisions:
+        df_dec = pd.DataFrame([{
+            "Zeit": d.created_at.strftime("%Y-%m-%d %H:%M"),
+            "Verdict": d.verdict,
+            "Asset": d.asset_id,
+            "Kategorie": d.category or "",
+            "Score": d.score,
+            "NAV": d.net_value,
+            "Rationale": (d.rationale or "")[:80],
+        } for d in decisions])
+        st.dataframe(df_dec, use_container_width=True, hide_index=True)
+        st.download_button(
+            "Entscheidungen als CSV exportieren",
+            pstore.export_decisions_csv().encode("utf-8-sig"),
+            file_name=f"procurement_decisions_{now:%Y%m%d_%H%M}.csv",
+            mime="text/csv",
         )
-        st.markdown(f"[Listing öffnen]({o.listing_url})")
+    else:
+        st.info("Noch keine Entscheidungen aufgezeichnet.")
 
-        cA, cB, cC = st.columns(3)
-        cA.metric("Aktuelles Gebot",
-                  f"{o.financials.current_bid:,.0f} €".replace(",", "."))
-        if o.type == "POSITIVE_ASSET":
-            cB.metric("Bid-Limit",
-                      f"{o.bid_ceiling:,.0f} €".replace(",", "."))
-            cC.metric("Net Asset Value",
-                      f"{o.net_asset_value:,.0f} €".replace(",", "."))
-        else:
-            cB.metric("Vergütung (Auftraggeber)",
-                      f"{o.financials.current_bid:,.0f} €".replace(",", "."))
-            cC.metric("Geschätzte Sanierungskosten",
-                      f"{o.financials.remediation_cost_estimate:,.0f} €".replace(",", "."))
 
-        st.markdown("**Beschreibung**")
-        st.write(o.description)
+# ---------------------------------------------------------------------------
+# TAB 4 - Lerner
+# ---------------------------------------------------------------------------
 
-        # Score breakdown
-        st.markdown("**Score-Breakdown**")
-        bd = o.score_breakdown
-        if bd:
-            st.bar_chart(pd.DataFrame({"Punkte": bd}))
-        else:
-            st.write("(keine Daten)")
+with tab_learn:
+    st.subheader("Was der Lerner aus den Entscheidungen gelernt hat")
+    st.caption(
+        "Fit-Bonus: bewegt den Score in Kategorien, die du oft annimmst, "
+        "nach oben (max ±12 Punkte ab 3 Entscheidungen). "
+        "Markt-Korrektur: korrigiert geschätzte Marktwerte anhand "
+        "beobachteter Endpreise (ab 3 Beobachtungen, Bereich 0.5x – 1.5x)."
+    )
 
-        # Risk badges
-        red = pdata.detect_red_flags(o)
-        dual = pdata.detect_dual_use(o)
-        chips = []
-        if red:
-            chips.append(
-                f"<span class='red-flag'>Red Flags: {', '.join(red)}</span>"
-            )
-        if dual:
-            chips.append(
-                "<span class='red-flag'>Dual-Use / BAFA-Pflicht prüfen</span>"
-            )
-        if o.risk_factors.pre_1990_vessel:
-            chips.append(
-                "<span class='red-flag'>Pre-1990-Schiff (Asbestrisiko)</span>"
-            )
-        if not chips:
-            chips.append("Keine kritischen Risiken erkannt.")
-        st.markdown("**Risiko**<br>" + "<br>".join(chips), unsafe_allow_html=True)
+    summary = plearner.summarise()
+    if not summary:
+        st.info("Noch keine Lern-Datenpunkte. Mach im **Hot Deals** Tab "
+                "ein paar Ja/Nein-Entscheidungen oder zeichne via "
+                "`procurement_store.record_observation()` beobachtete "
+                "Endpreise auf.")
+    else:
+        df = pd.DataFrame([{
+            "Kategorie": a.category,
+            "Fit-Bonus": a.fit_bonus,
+            "Markt-Korrektur": f"{a.market_multiplier:.2f}x",
+            "Entscheidungen": a.decision_samples,
+            "Beobachtungen": a.observation_samples,
+        } for a in summary])
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-        # Bid-ceiling math (transparent)
-        with st.expander("Bid-Limit Herleitung (Handbuch §9)"):
-            if o.type == "POSITIVE_ASSET":
-                st.write({
-                    "Marktwert": o.financials.estimated_market_value,
-                    "- Logistik": -o.logistics_cost_estimate,
-                    "- Reparatur OPEX": -o.financials.repair_opex_estimate,
-                    f"- Zielmarge ({target_margin*100:.0f}%)":
-                        -target_margin * o.financials.estimated_market_value,
-                    "+ Schrott-Credit": o.scrap_value_potential,
-                    "= Bid-Limit": o.bid_ceiling,
-                })
+    st.divider()
+    st.subheader("Beobachtung manuell aufzeichnen")
+    st.caption(
+        "Wenn eine Auktion durchgelaufen ist, trage den finalen Zuschlagspreis "
+        "ein. Der Lerner passt dann die Marktwertschätzung für die Kategorie an."
+    )
+    with st.form("obs_form"):
+        obs_asset = st.text_input("Asset-ID (z.B. VEBEG-2026-0142)")
+        obs_category = st.text_input("Kategorie")
+        obs_est = st.number_input("Geschätzter Marktwert (EUR)",
+                                  min_value=0.0, step=100.0)
+        obs_final = st.number_input("Finaler Zuschlagspreis (EUR)",
+                                    min_value=0.0, step=100.0)
+        if st.form_submit_button("Aufzeichnen"):
+            if obs_asset and obs_category and obs_final > 0:
+                pstore.record_observation(
+                    obs_asset, obs_category, obs_final,
+                    estimated_market_value=obs_est or None,
+                )
+                st.cache_data.clear()
+                st.success("Beobachtung aufgezeichnet.")
+                st.rerun()
             else:
-                st.write({
-                    "Geschätzte Sanierungskosten": o.financials.remediation_cost_estimate,
-                    "- Schrott-Credit": -o.scrap_value_potential,
-                    f"+ Zielmarge ({target_margin*100:.0f}%)":
-                        target_margin * o.financials.remediation_cost_estimate,
-                    "= Angebotspreis (Mindestvergütung)": o.bid_ceiling,
-                })
+                st.error("Asset-ID, Kategorie und Zuschlagspreis sind Pflicht.")
 
-        with st.expander("Vollständiges JSON (Schema Handbuch §8.3)"):
-            st.json(pdata.to_dict(o))
+
+# ---------------------------------------------------------------------------
+# TAB 5 - Alerts
+# ---------------------------------------------------------------------------
+
+with tab_alerts:
+    st.subheader("Alert-Konfiguration")
+    st.caption(
+        "Email- und Webhook-Versand werden ausschliesslich über "
+        "Umgebungsvariablen konfiguriert (keine Keys in der DB)."
+    )
+
+    cfg = {
+        "SMTP-Host": os.getenv("PROCUREMENT_ALERT_SMTP_HOST") or "—",
+        "SMTP-User": os.getenv("PROCUREMENT_ALERT_SMTP_USER") or "—",
+        "From":      os.getenv("PROCUREMENT_ALERT_FROM") or "—",
+        "To":        os.getenv("PROCUREMENT_ALERT_TO") or "—",
+        "Webhook":   "konfiguriert" if os.getenv("PROCUREMENT_ALERT_WEBHOOK")
+                     else "—",
+    }
+    st.json(cfg)
+
+    st.subheader(f"Hot Deals zum Versand ({len(hot)} aktuell)")
+    if hot:
+        for o in hot[:5]:
+            st.markdown(
+                f"- **{o.title_normalized}** · Score {o.score} · "
+                f"NAV {o.net_asset_value:.0f} EUR · "
+                f"endet {o.auction_end:%d.%m.%Y %H:%M}"
+            )
+        if len(hot) > 5:
+            st.caption(f"… und {len(hot)-5} weitere.")
+    else:
+        st.info(f"Keine Assets über Score {hot_score}.")
+
+    c1, c2 = st.columns(2)
+    if c1.button("Test-Alerts jetzt senden", type="primary", disabled=not hot):
+        reports = palerts.dispatch_alerts(hot)
+        if not reports:
+            st.warning("Kein Kanal konfiguriert.")
+        for rep in reports:
+            cls = "verdict-yes" if rep.sent else "verdict-no"
+            st.markdown(
+                f"<span class='{cls}'>{rep.channel} → "
+                f"{rep.target or '(unset)'}: "
+                f"{'OK' if rep.sent else (rep.error or 'failed')}</span>",
+                unsafe_allow_html=True,
+            )
+    c2.write("")  # spacer
+
+
+# ---------------------------------------------------------------------------
+# TAB 6 - Chat
+# ---------------------------------------------------------------------------
+
+with tab_chat:
+    st.subheader("Chat mit dem Procurement Agent")
+    if "agent" not in st.session_state:
+        try:
+            from procurement_agent import Agent  # type: ignore
+            st.session_state["agent"] = Agent()
+            st.session_state["agent_error"] = None
+        except Exception as exc:  # noqa: BLE001
+            st.session_state["agent"] = None
+            st.session_state["agent_error"] = str(exc)
+    if "chat_messages" not in st.session_state:
+        st.session_state["chat_messages"] = []
+
+    if st.session_state.get("agent_error"):
+        st.warning(
+            "Procurement Agent konnte nicht geladen werden: "
+            f"{st.session_state['agent_error']}\n\n"
+            "Trage einen `DEEPSEEK_API_KEY` in `.env` ein und starte das "
+            "Dashboard neu, um den Chat zu aktivieren. "
+            "Free-Tier auf https://platform.deepseek.com."
+        )
+    elif st.session_state["agent"] is None:
+        st.info("Agent nicht verfügbar.")
+    else:
+        for msg in st.session_state["chat_messages"]:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+        if user_msg := st.chat_input("Frag z.B.: 'Top 3 Pumpen mit Score > 70'"):
+            st.session_state["chat_messages"].append(
+                {"role": "user", "content": user_msg})
+            with st.chat_message("user"):
+                st.markdown(user_msg)
+            with st.chat_message("assistant"):
+                with st.spinner("Agent denkt nach …"):
+                    reply = st.session_state["agent"].chat(user_msg)
+                st.markdown(reply)
+            st.session_state["chat_messages"].append(
+                {"role": "assistant", "content": reply})
+        if st.button("Chat zurücksetzen"):
+            st.session_state["agent"].clear_chat()
+            st.session_state["chat_messages"] = []
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Footer - data source health
+# ---------------------------------------------------------------------------
 
 st.divider()
-
-
-# ---------------------------------------------------------------------------
-# Data sources status strip
-# ---------------------------------------------------------------------------
-
-st.subheader("Datenquellen")
+st.caption("Datenquellen-Status")
 src_cols = st.columns(len(reports) or 1)
 for col, rep in zip(src_cols, reports):
     cls = "source-ok" if not rep.error else "source-fail"
@@ -473,67 +709,3 @@ for col, rep in zip(src_cols, reports):
         f"<span class='{cls}'>{label}</span> — {detail}",
         unsafe_allow_html=True,
     )
-
-st.divider()
-
-
-# ---------------------------------------------------------------------------
-# Embedded chat with the procurement agent (lazy-imported so the dashboard
-# still works for users without a DEEPSEEK_API_KEY).
-# ---------------------------------------------------------------------------
-
-st.subheader("Chat mit dem Procurement Agent")
-
-if "agent" not in st.session_state:
-    try:
-        from procurement_agent import Agent  # type: ignore
-        st.session_state["agent"] = Agent()
-        st.session_state["agent_error"] = None
-    except Exception as exc:  # noqa: BLE001
-        st.session_state["agent"] = None
-        st.session_state["agent_error"] = str(exc)
-
-if "chat_messages" not in st.session_state:
-    st.session_state["chat_messages"] = []
-
-if st.session_state.get("agent_error"):
-    st.warning(
-        "Procurement Agent konnte nicht geladen werden: "
-        f"{st.session_state['agent_error']}\n\n"
-        "Trage einen `DEEPSEEK_API_KEY` in `.env` ein und starte das "
-        "Dashboard neu, um den Chat zu aktivieren. "
-        "Key kostenlos unter https://platform.deepseek.com erhältlich."
-    )
-elif st.session_state["agent"] is None:
-    st.info("Agent nicht verfügbar.")
-else:
-    for msg in st.session_state["chat_messages"]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    placeholder = (
-        f"Frag z.B.: 'Ist {st.session_state.get('selected_asset','VEBEG-2026-0142')} "
-        "wirtschaftlich sinnvoll?'"
-        if st.session_state.get("selected_asset")
-        else "Frag z.B.: 'Zeig mir die Top-3 Pumpen mit Score > 70.'"
-    )
-
-    if user_msg := st.chat_input(placeholder):
-        st.session_state["chat_messages"].append(
-            {"role": "user", "content": user_msg}
-        )
-        with st.chat_message("user"):
-            st.markdown(user_msg)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Agent denkt nach …"):
-                reply = st.session_state["agent"].chat(user_msg)
-            st.markdown(reply)
-        st.session_state["chat_messages"].append(
-            {"role": "assistant", "content": reply}
-        )
-
-    if st.button("Chat zurücksetzen"):
-        st.session_state["agent"].clear_chat()
-        st.session_state["chat_messages"] = []
-        st.rerun()
