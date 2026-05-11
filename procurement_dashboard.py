@@ -82,7 +82,177 @@ st.markdown(
     .verdict-later { color:#8a6d3b; font-weight:600; }
     .source-ok    { color:#0a7d33; font-weight:600; }
     .source-fail  { color:#b00020; font-weight:600; }
+    /* Hotkey help overlay */
+    #procurement-hotkey-overlay {
+        position: fixed; inset: 0; background: rgba(8,12,24,0.78);
+        display: none; align-items: center; justify-content: center;
+        z-index: 9999;
+    }
+    #procurement-hotkey-overlay .panel {
+        background: #1b2236; color: #f0f4fc;
+        border: 1px solid #3a4666; border-radius: 12px;
+        padding: 28px 36px; min-width: 480px; max-width: 640px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+    }
+    #procurement-hotkey-overlay h2 {
+        margin: 0 0 14px 0; color: #5aa8ff; font-size: 1.4em;
+    }
+    #procurement-hotkey-overlay table { border-collapse: collapse; width: 100%; }
+    #procurement-hotkey-overlay td { padding: 6px 8px; vertical-align: middle; }
+    #procurement-hotkey-overlay kbd {
+        display: inline-block; min-width: 38px; padding: 4px 10px;
+        background: #28304c; border: 1px solid #6e82b4; border-radius: 6px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-weight: 700; text-align: center; color: #f0f4fc;
+    }
+    #procurement-hotkey-overlay .hint {
+        margin-top: 14px; font-size: 0.85em; color: #a0aec8;
+    }
     </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# Hotkey bindings + help overlay. Injected once, guarded against re-runs.
+st.markdown(
+    """
+<div id="procurement-hotkey-overlay">
+  <div class="panel">
+    <h2>⌨ Hotkeys</h2>
+    <table>
+      <tr><td><kbd>1</kbd>–<kbd>6</kbd></td><td>Tab wechseln (Hot Deals · Pipeline · Monitor · Lerner · Alerts · Chat)</td></tr>
+      <tr><td><kbd>J</kbd></td><td>Ja — Asset zum Kauf markieren</td></tr>
+      <tr><td><kbd>N</kbd></td><td>Nein — verwerfen</td></tr>
+      <tr><td><kbd>L</kbd></td><td>Später — auf Watchlist</td></tr>
+      <tr><td><kbd>/</kbd></td><td>Stichwort-Filter fokussieren (Pipeline-Tab)</td></tr>
+      <tr><td><kbd>S</kbd></td><td>Spezialisten neu scannen (Hot Deals)</td></tr>
+      <tr><td><kbd>E</kbd></td><td>CSV exportieren</td></tr>
+      <tr><td><kbd>R</kbd></td><td>Dashboard reloaden</td></tr>
+      <tr><td><kbd>?</kbd> / <kbd>H</kbd></td><td>Diese Hilfe ein/aus</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Hilfe schliessen</td></tr>
+    </table>
+    <div class="hint">Hotkeys feuern nur, wenn kein Eingabefeld fokussiert ist.</div>
+  </div>
+</div>
+<script>
+(function () {
+  const NS = "__procurement_hotkeys_v1__";
+  if (window[NS]) return;
+  window[NS] = true;
+
+  const overlay = () => document.getElementById("procurement-hotkey-overlay");
+  const showHelp = () => { const o = overlay(); if (o) o.style.display = "flex"; };
+  const hideHelp = () => { const o = overlay(); if (o) o.style.display = "none"; };
+  const helpVisible = () => {
+    const o = overlay();
+    return o && getComputedStyle(o).display !== "none";
+  };
+
+  // Click first <button> whose visible text matches the predicate. Returns true on hit.
+  function clickButton(predicate) {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const hit = buttons.find(b => {
+      // skip hidden buttons (e.g. inactive tabs keep content in DOM but hidden)
+      if (b.offsetParent === null) return false;
+      const text = (b.innerText || b.textContent || "").trim();
+      return predicate(text);
+    });
+    if (hit) { hit.click(); return true; }
+    return false;
+  }
+
+  function activeTabName() {
+    const t = document.querySelector('button[role="tab"][aria-selected="true"]');
+    return t ? (t.innerText || "").trim() : "";
+  }
+
+  function selectTab(index) {
+    const tabs = Array.from(document.querySelectorAll('button[role="tab"]'));
+    if (tabs.length >= index) tabs[index - 1].click();
+  }
+
+  document.addEventListener("keydown", function (ev) {
+    // never hijack when typing
+    const tag = (ev.target.tagName || "").toLowerCase();
+    if (ev.isComposing || tag === "input" || tag === "textarea" ||
+        ev.target.isContentEditable) {
+      if (ev.key === "Escape" && helpVisible()) hideHelp();
+      return;
+    }
+
+    const k = ev.key;
+
+    // Help toggle / close (works everywhere)
+    if (k === "?" || k === "h" || k === "H") {
+      ev.preventDefault();
+      helpVisible() ? hideHelp() : showHelp();
+      return;
+    }
+    if (k === "Escape") { hideHelp(); return; }
+
+    // Numeric tabs
+    if (k >= "1" && k <= "6") {
+      ev.preventDefault();
+      selectTab(parseInt(k, 10));
+      return;
+    }
+
+    // Ja / Nein / Spaeter — only meaningful on Hot Deals tab
+    const tab = activeTabName();
+    const onHotDeals = tab.includes("Hot Deals");
+
+    if (k === "j" || k === "J") {
+      if (onHotDeals) { ev.preventDefault(); clickButton(t => t.startsWith("✅")); }
+      return;
+    }
+    if (k === "n" || k === "N") {
+      if (onHotDeals) { ev.preventDefault(); clickButton(t => t.startsWith("❌")); }
+      return;
+    }
+    if (k === "l" || k === "L") {
+      if (onHotDeals) { ev.preventDefault(); clickButton(t => t.startsWith("⏳")); }
+      return;
+    }
+
+    if (k === "s" || k === "S") {
+      if (onHotDeals) {
+        ev.preventDefault();
+        clickButton(t => t.includes("Spezialisten jetzt scannen"));
+      }
+      return;
+    }
+
+    if (k === "e" || k === "E") {
+      ev.preventDefault();
+      clickButton(t => t.includes("CSV exportieren") ||
+                       t.includes("Entscheidungen als CSV"));
+      return;
+    }
+
+    if (k === "r" || k === "R") {
+      ev.preventDefault();
+      window.location.reload();
+      return;
+    }
+
+    if (k === "/") {
+      ev.preventDefault();
+      const inp = document.querySelector('input[aria-label*="Stichwort"]');
+      if (inp) inp.focus();
+      return;
+    }
+  });
+
+  // Click outside the help panel = close
+  document.addEventListener("click", function (ev) {
+    const o = overlay();
+    if (!o || !helpVisible()) return;
+    if (ev.target === o) hideHelp();
+  });
+})();
+</script>
     """,
     unsafe_allow_html=True,
 )
@@ -92,7 +262,8 @@ st.caption(
     "Akquise von Behörden-, Militär-, Feuerwehr-, Wasserbau- und "
     "Edelmetall-Beständen — Score-getriebene Übersicht aus VEBEG, "
     "Zoll-Auktion, Troostwijk, Domaine, AMW, TED, e-vergabe, NetBid, "
-    "Surplex und Fornæs."
+    "Surplex und Fornæs.   ⌨ Hotkeys: `?` für Hilfe, `1`–`6` für Tabs, "
+    "`J/N/L` für Ja/Nein/Später."
 )
 
 

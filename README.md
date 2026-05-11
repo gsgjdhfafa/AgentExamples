@@ -144,6 +144,38 @@ strategic handbook *"Beschaffung von Militär-/Feuerwehrausrüstung"*.
 streamlit run procurement_dashboard.py
 ```
 
+### Dashboard hotkeys
+
+The dashboard binds browser-level keyboard shortcuts (no Win/Cmd key required).
+Press `?` at any time to see the cheat sheet.
+
+| Key             | Action                                                    |
+|-----------------|-----------------------------------------------------------|
+| `1` – `6`       | Switch tabs (Hot Deals · Pipeline · Monitor · Lerner · Alerts · Chat) |
+| `J`             | Mark the top Hot-Deal card as **Ja**                      |
+| `N`             | Mark it as **Nein**                                       |
+| `L`             | Mark it as **Später** (adds to watchlist)                 |
+| `S`             | Re-run all specialist agents                              |
+| `E`             | Trigger the CSV export                                    |
+| `/`             | Focus the keyword filter on the Pipeline tab              |
+| `R`             | Reload the dashboard                                      |
+| `?` / `H`       | Toggle the hotkey help overlay                            |
+| `Esc`           | Close the overlay                                         |
+
+The shortcuts are suppressed while a text input or chat field is focused, so
+typing `?` into the chat just types a question mark.
+
+### Generating the desktop wallpaper
+
+```bash
+python procurement_wallpaper.py                 # 2560x1440 (default)
+python procurement_wallpaper.py 3840 2160       # 4K
+python procurement_wallpaper.py 1920 1080 my.png
+```
+
+The PNG bundles the working-features list (left) and the hotkey reference
+(right) — useful as a desktop background while the dashboard runs.
+
 ### Running the test suite
 
 ```bash
