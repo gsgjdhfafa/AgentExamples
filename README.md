@@ -117,6 +117,126 @@ The following agent frameworks are currently implemented:
 
 *SmolAgents' automatic tool generation feature provides code-writing capabilities but was not used here to maintain fair comparison across frameworks.
 
+## Specialised Agent: EU Procurement Intelligence
+
+In addition to the framework comparison, this repository includes a fully
+worked specialised agent for the acquisition of European public-sector,
+military, firefighter and waterworks surplus equipment - matching the
+strategic handbook *"Beschaffung von Militär-/Feuerwehrausrüstung"*.
+
+| File | Purpose |
+|------|---------|
+| `procurement_prompts.py`   | Role / goal / instructions / domain knowledge for the chat agent |
+| `procurement_data.py`      | Normalised opportunity data model (handbook §8.3), enrichment + scoring engine, curated mock inventory (17 lots including coin-scrap, tug-winch, brownfield-with-subsidy across VEBEG, Zoll, Troostwijk, Domaine, AMW, e-vergabe, NetBid, Surplex, Fornæs) |
+| `procurement_sources.py`   | Live adapters (`ZollAuktionAdapter`, `TedTendersAdapter`, `MockAdapter`) with timeout + offline fallback. Set `PROCUREMENT_OFFLINE=1` to disable network. |
+| `procurement_store.py`     | SQLite persistence: `decisions` (Ja/Nein/Später per asset_id), `observations` (historical final auction prices), `agent_runs` (audit log). Path via `PROCUREMENT_DB` env var. |
+| `procurement_learner.py`   | Bargain learner: turns operator decisions into per-category score bonuses (max ±12 points) and observed final-price ratios into market-value correction multipliers (clamped 0.5x – 1.5x). |
+| `procurement_agents.py`    | Multi-agent registry with five specialists: `Generalist`, `BargainHunter`, `ScrapMaximizer`, `PreciousMetalsHunter`, `TritonMaritime`. Each writes an `agent_runs` row on every scan. |
+| `procurement_alerts.py`    | Email (SMTP) + webhook dispatchers, configured exclusively via env vars so no secrets land in the repo. No-ops if unconfigured. |
+| `procurement_agent.py`     | DeepSeek-V3 chat agent (OpenAI-compatible API, ~4x cheaper than Haiku) with 7 tools: `current_date`, `list_opportunities`, `get_opportunity`, `score_opportunity`, `scrap_value`, `logistics_estimate`, `dual_use_check`. Override the model via `PROCUREMENT_MODEL` env var. |
+| `procurement_dashboard.py` | Streamlit dashboard with 6 tabs: **Hot Deals** (Ja/Nein/Später cards from every specialist), **Pipeline** (filterable table + map + CSV), **Agent Monitor** (live status + run history), **Lerner** (what the learner believes), **Alerts** (test dispatch, configuration check), **Chat** (free-form). Configurable target margin, €/km, Hot-Deal-Schwelle. |
+| `tests/test_procurement_data.py` | 32 pytest tests covering haversine, scrap value, logistics, red-flag detection, dual-use detection, scoring rubric, bid-ceiling formula, search filters and NAV math |
+| `tests/test_procurement_store.py` | 13 pytest tests covering decision persistence, observation ratios, agent-run logging, last-run-per-agent and the bargain learner (neutral prior, positive bias, market-correction clamping) |
+
+### Running the dashboard
+
+```bash
+streamlit run procurement_dashboard.py
+```
+
+### Running the test suite
+
+```bash
+pytest tests/ -v
+```
+
+### Optional alert configuration
+
+```
+# Email
+PROCUREMENT_ALERT_SMTP_HOST=smtp.example.com
+PROCUREMENT_ALERT_SMTP_PORT=587
+PROCUREMENT_ALERT_SMTP_USER=alerts@example.com
+PROCUREMENT_ALERT_SMTP_PASSWORD=...
+PROCUREMENT_ALERT_FROM=alerts@example.com
+PROCUREMENT_ALERT_TO=ops@example.com,backup@example.com
+
+# Slack / Discord / Teams / custom webhook
+PROCUREMENT_ALERT_WEBHOOK=https://hooks.slack.com/services/...
+```
+
+### Architecture overview
+
+```
+                              ┌──────────────────────────┐
+  external feeds              │  procurement_sources.py  │
+  ZollAPI · TED · Mock  ───▶  │  aggregate() + reports   │
+                              └────────────┬─────────────┘
+                                           ▼
+                              ┌──────────────────────────┐
+                              │   procurement_data.py    │
+                              │  enrich() + score() +    │
+                              │  bid_ceiling()           │
+                              └────────────┬─────────────┘
+                                           ▼
+        ┌─────────────────────────────────────────────────────┐
+        │              procurement_learner.py                 │
+        │  decision-driven fit_bonus + obs-driven correction  │
+        └────────────────────────┬────────────────────────────┘
+                                 ▼
+                  ┌──────────────────────────┐
+                  │  procurement_agents.py   │
+                  │  5 specialists × scan()  │
+                  └────────────┬─────────────┘
+                               ▼
+        ┌──────────────────────────────────────────────┐
+        │           procurement_dashboard.py           │
+        │  6 tabs · Ja/Nein cards · CSV · Watchlist    │
+        └────────────┬───────────────────┬─────────────┘
+                     ▼                   ▼
+          procurement_store.py    procurement_alerts.py
+          (SQLite persistence)    (SMTP + webhook)
+```
+
+The dashboard works without an API key (read-only data, filters, scoring,
+map and JSON drawer all run on local logic). The embedded chat needs a
+`DEEPSEEK_API_KEY` in `.env` (free tier on https://platform.deepseek.com).
+To switch backends without code changes, swap to any OpenAI-compatible
+provider via env vars:
+
+```
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1   # default
+PROCUREMENT_MODEL=deepseek-chat                 # default
+
+# or point at OpenAI / Groq / Mistral instead:
+# DEEPSEEK_API_KEY=$OPENAI_API_KEY
+# DEEPSEEK_BASE_URL=https://api.openai.com/v1
+# PROCUREMENT_MODEL=gpt-4o-mini
+```
+
+### Scoring rubric (handbook §8.4)
+
+The 0-100 attractiveness score is the sum of:
+
+* Margin between current bid and estimated market value (-30 .. +40)
+* Premium-brand bonus (Liebherr, Börger, Mercedes, MAN, ...) (0 / +10)
+* Proximity to home depot Hamburg (-10 .. +10)
+* Documentation / low operating hours despite high age (0 / +15)
+* Logistics penalty when transport > 25% of asset value (-15 / 0)
+* Risk penalties: red-flag terms, pre-1990 vessel, undeclared dual-use (...)
+
+plus a baseline of 30 points. Negative-value assets (wreck removal, weir
+deconstruction) are scored on the spread between contract value and our
+estimated remediation cost.
+
+### Bid-ceiling formula
+
+```
+positive_asset:  market - logistics - repair - 25%·market + scrap_credit
+negative_asset:  remediation - scrap_credit + 25%·remediation
+```
+
 ## Getting Started
 
 To run the project, follow these steps:
@@ -131,6 +251,7 @@ To run the project, follow these steps:
 TAVILY_API_KEY="put your tavily key in here"
 OPENAI_API_KEY="put your OpenAI key in here"
 ANTHROPIC_API_KEY="put your Anthropic key in here"
+DEEPSEEK_API_KEY="put your DeepSeek key in here"   # for procurement_agent.py
 ```
 7.  Run the Streamlit app: `streamlit run agent-ui.py`
 
