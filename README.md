@@ -127,14 +127,22 @@ strategic handbook *"Beschaffung von Militär-/Feuerwehrausrüstung"*.
 | File | Purpose |
 |------|---------|
 | `procurement_prompts.py`   | Role / goal / instructions / domain knowledge for the agent |
-| `procurement_data.py`      | Normalised opportunity data model (handbook §8.3), enrichment + scoring engine, mock inventory from VEBEG, Zoll-Auktion, Troostwijk, Domaine, AMW, e-vergabe |
+| `procurement_data.py`      | Normalised opportunity data model (handbook §8.3), enrichment + scoring engine, curated mock inventory (14 lots from VEBEG, Zoll-Auktion, Troostwijk, Domaine, AMW, e-vergabe, NetBid, Fornæs) |
+| `procurement_sources.py`   | Live adapters (`ZollAuktionAdapter`, `TedTendersAdapter`, `MockAdapter`) with timeout + offline fallback. Aggregator deduplicates by `asset_id`. Set `PROCUREMENT_OFFLINE=1` to disable network. |
 | `procurement_agent.py`     | DeepSeek-V3 agent (OpenAI-compatible API, ~4x cheaper than Haiku) with 7 tools: `current_date`, `list_opportunities`, `get_opportunity`, `score_opportunity`, `scrap_value`, `logistics_estimate`, `dual_use_check`. Override the model via `PROCUREMENT_MODEL` env var. |
-| `procurement_dashboard.py` | Streamlit dashboard - KPI strip, filters, sortable opportunity table, location map, score breakdown chart, JSON drawer, embedded chat with the agent |
+| `procurement_dashboard.py` | Streamlit dashboard - alert banner for Score ≥ 80, configurable home depot / margin / €/km, watchlist, CSV export, location map, score breakdown chart, JSON drawer, data-source status strip, embedded chat with the agent |
+| `tests/test_procurement_data.py` | 32 pytest tests covering haversine, scrap value, logistics, red-flag detection, dual-use detection, scoring rubric, bid-ceiling formula, search filters and NAV math |
 
 ### Running the dashboard
 
 ```bash
 streamlit run procurement_dashboard.py
+```
+
+### Running the test suite
+
+```bash
+pytest tests/test_procurement_data.py -v
 ```
 
 The dashboard works without an API key (read-only data, filters, scoring,

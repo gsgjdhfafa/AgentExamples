@@ -600,6 +600,124 @@ _SAMPLE: list[Opportunity] = [
         found_at=_utc(2026, 5, 3),
         auction_end=_utc(2026, 5, 12, 19),
     ),
+    Opportunity(
+        asset_id="EVERGABE-2026-BROWNFIELD-077",
+        source_platform="E-VERGABE",
+        listing_url="https://www.evergabe.de/auftraege/2026-brownfield-077",
+        type="NEGATIVE_ASSET",
+        category="BROWNFIELD",
+        title_normalized="Altlastenflaeche ehem. Kupferhuette Helbra",
+        description=(
+            "Industriebrache mit Bodenkontamination (Schwermetalle, "
+            "Mineraloelkohlenwasserstoffe). 4,2 ha. Symbolischer Kaufpreis "
+            "1 EUR plus Sanierungszuschuss vom Land. CPV 90722200-6. "
+            "Altlastenverdachtsflaeche im Boden- und Altlastenkataster."
+        ),
+        location=Location("DE", "06311", "Helbra", 51.5468, 11.4965),
+        financials=Financials(
+            current_bid=850000.0,  # subsidy paid to whoever takes the land
+            bid_type="TENDER",
+            estimated_market_value=0.0,
+            scrap_material=None,
+            weight_kg=None,
+            remediation_cost_estimate=620000.0,
+        ),
+        risk_factors=RiskFactors(
+            hazardous_materials=True,
+            notes=["Altlast", "Bodenkontamination"],
+        ),
+        brands=[],
+        operating_hours=None,
+        year_built=None,
+        found_at=_utc(2026, 4, 12),
+        auction_end=_utc(2026, 6, 20),
+    ),
+    Opportunity(
+        asset_id="NETBID-INSO-2026-3318",
+        source_platform="NETBID",
+        listing_url="https://www.netbid.com/de/auction/insolvenz-3318",
+        type="POSITIVE_ASSET",
+        category="WATERWORKS",
+        title_normalized="Hochleistungspumpe Boerger AL75, Mittelstandsinsolvenz",
+        description=(
+            "Drehkolbenpumpe Boerger AL75, Bj. 2020, ca. 380 Betriebsstunden. "
+            "Aus Insolvenzverfahren eines Spezialtiefbauunternehmens. "
+            "Komplett mit Frequenzumrichter und Steuerung. Besichtigung "
+            "nach Termin. Gekauft wie gesehen."
+        ),
+        location=Location("DE", "44135", "Dortmund", 51.5135, 7.4653),
+        financials=Financials(
+            current_bid=6500.0,
+            bid_type="ENGLISH",
+            estimated_market_value=14500.0,
+            scrap_material="STEEL_ST37",
+            weight_kg=900,
+            repair_opex_estimate=400.0,
+        ),
+        risk_factors=RiskFactors(),
+        brands=["Börger"],
+        operating_hours=380,
+        year_built=2020,
+        found_at=_utc(2026, 5, 5),
+        auction_end=_utc(2026, 5, 22, 16),
+    ),
+    Opportunity(
+        asset_id="FORNAES-DK-2026-0042",
+        source_platform="FORNAES",
+        listing_url="https://www.fornaes.com/parts/2026-0042",
+        type="POSITIVE_ASSET",
+        category="MARITIME_SPARE",
+        title_normalized="Schottel SRP 1212 Ruderpropeller (refurbished)",
+        description=(
+            "Ausgebauter Schottel-Ruderpropeller SRP 1212 vom Verschrottungs- "
+            "schiff M/V Nordkap (Bj. 1998). Hauptlager geprueft, Hydraulik "
+            "ueberholt. Ideal als Ersatz fuer aeltere Hafenschlepper "
+            "(End of Life beim Hersteller). Standort Grenaa, DK."
+        ),
+        location=Location("DK", "8500", "Grenaa", 56.4143, 10.8807),
+        financials=Financials(
+            current_bid=42000.0,
+            bid_type="FIXED_PRICE",
+            estimated_market_value=95000.0,
+            scrap_material="STEEL_HMS_1_2",
+            weight_kg=3200,
+            repair_opex_estimate=4500.0,
+        ),
+        risk_factors=RiskFactors(repair_needed=False),
+        brands=["Schottel"],
+        operating_hours=None,
+        year_built=1998,
+        found_at=_utc(2026, 4, 25),
+        auction_end=_utc(2026, 6, 1),
+    ),
+    Opportunity(
+        asset_id="DOMAINE-FR-BREST-0034",
+        source_platform="DOMAINE",
+        listing_url="https://encheres-domaine.gouv.fr/vente/brest-2026-0034",
+        type="POSITIVE_ASSET",
+        category="GENERATOR",
+        title_normalized="Dieselgenerator Volvo Penta 250 kVA, Marine Brest",
+        description=(
+            "Groupe electrogene marine, Volvo Penta TAD1242GE, 250 kVA, "
+            "Bj. 2010, ca. 1100 Betriebsstunden. Reservequelle Marine "
+            "Nationale, Selbstabholung Brest, Frankreich. Documents complets."
+        ),
+        location=Location("FR", "29200", "Brest", 48.3905, -4.4860),
+        financials=Financials(
+            current_bid=9800.0,
+            bid_type="SEALED_BID",
+            estimated_market_value=28500.0,
+            scrap_material="MIXED_FERROUS",
+            weight_kg=2400,
+            repair_opex_estimate=600.0,
+        ),
+        risk_factors=RiskFactors(),
+        brands=["Volvo Penta"],
+        operating_hours=1100,
+        year_built=2010,
+        found_at=_utc(2026, 4, 28),
+        auction_end=_utc(2026, 5, 26),
+    ),
 ]
 
 _DB: dict[str, Opportunity] = {opp.asset_id: enrich(opp) for opp in _SAMPLE}
