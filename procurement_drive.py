@@ -77,14 +77,12 @@ class DriveClient:
         self.cache_dir = Path(os.path.expanduser("~/.procurement/letters"))
         self._service = None
 
-    @staticmethod
-    def is_configured() -> bool:
-        """True iff all env vars are set AND the google libs are installed."""
-        if not os.getenv("PROCUREMENT_DRIVE_CREDENTIALS"):
-            return False
-        if not os.getenv("PROCUREMENT_DRIVE_FOLDER_ID"):
-            return False
-        return _import_google() is not None
+    def is_configured(self) -> bool:
+        """True iff env vars are set, the credentials file actually exists
+        on disk, AND the google libs are installed. Routes through
+        :meth:`reason_unavailable` so the two never disagree.
+        """
+        return self.reason_unavailable() is None
 
     def reason_unavailable(self) -> str | None:
         if not self.credentials_path:

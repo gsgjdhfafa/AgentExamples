@@ -942,9 +942,22 @@ with tab_briefe:
             accept_multiple_files=True,
             label_visibility="collapsed",
         )
+        # `st.file_uploader` keeps its value across Streamlit reruns, so
+        # without a guard every triage button click would re-ingest every
+        # previously selected file and insert duplicate `letters` rows. We
+        # fingerprint each file (name + size) and remember in session state
+        # which fingerprints we have already ingested this session.
+        if "uploaded_fingerprints" not in st.session_state:
+            st.session_state["uploaded_fingerprints"] = set()
+        seen_fps: set[str] = st.session_state["uploaded_fingerprints"]
+
         if uploaded and ppdf.is_available():
             import tempfile
+            ingested = 0
             for fileobj in uploaded:
+                fingerprint = f"{fileobj.name}:{getattr(fileobj, 'size', 0)}"
+                if fingerprint in seen_fps:
+                    continue
                 with tempfile.NamedTemporaryFile(
                     suffix=".pdf", delete=False
                 ) as tmp:
@@ -954,6 +967,7 @@ with tab_briefe:
                     text = ppdf.extract_text(tmp_path)
                 except Exception as exc:  # noqa: BLE001
                     st.warning(f"pdftotext-Fehler bei {fileobj.name}: {exc}")
+                    seen_fps.add(fingerprint)  # do not retry on every rerun
                     continue
                 letter = pletters.from_text(
                     text,
@@ -961,9 +975,10 @@ with tab_briefe:
                     filename=fileobj.name,
                 )
                 pstore.record_letter(letter)
-            st.success(f"{len(uploaded)} PDF(s) eingelesen.")
-            # let the user re-trigger upload without auto-rerunning on the
-            # same files
+                seen_fps.add(fingerprint)
+                ingested += 1
+            if ingested:
+                st.success(f"{ingested} neue PDF(s) eingelesen.")
 
     st.divider()
 
