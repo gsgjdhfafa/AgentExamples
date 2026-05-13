@@ -137,3 +137,138 @@ class TestLearner:
         assert adj.market_multiplier == pytest.approx(
             procurement_learner.MARKET_CORRECTION_FLOOR
         )
+
+
+# ---------------------------------------------------------------------------
+# Briefe-Triage: letters and dispatches
+# ---------------------------------------------------------------------------
+
+class TestLetters:
+    def _sample_letter(self):
+        import procurement_letters as pl
+        return pl.from_text(
+            "Stadtwerke Berlin GmbH\n"
+            "Rechnung Nr. R-2026-0042\n"
+            "Rechnungsdatum: 12.04.2026\n"
+            "Faellig bis: 30.06.2026\n"
+            "Betrag: 1.234,56 EUR\n",
+            source="UPLOAD",
+            filename="rechnung.pdf",
+        )
+
+    def test_record_and_get(self, temp_db):
+        letter = self._sample_letter()
+        temp_db.record_letter(letter)
+        got = temp_db.get_letter(letter.letter_id)
+        assert got is not None
+        assert got.short_code == "R-2026-0042"
+        assert got.amount_eur == pytest.approx(1234.56)
+
+    def test_upsert_overwrites_same_id(self, temp_db):
+        letter = self._sample_letter()
+        temp_db.record_letter(letter)
+        letter.status = "KEPT"
+        letter.raw_text = "updated"
+        temp_db.record_letter(letter)
+        got = temp_db.get_letter(letter.letter_id)
+        assert got.status == "KEPT"
+        assert got.raw_text == "updated"
+
+    def test_all_letters_filter_by_status(self, temp_db):
+        a = self._sample_letter()
+        a.status = "NEW"
+        temp_db.record_letter(a)
+
+        b = self._sample_letter()
+        import uuid
+        b.letter_id = str(uuid.uuid4())
+        b.status = "KEPT"
+        temp_db.record_letter(b)
+
+        assert len(temp_db.all_letters()) == 2
+        assert len(temp_db.all_letters(status="KEPT")) == 1
+        assert len(temp_db.all_letters(status="NEW")) == 1
+
+    def test_letters_by_sender(self, temp_db):
+        letter = self._sample_letter()
+        temp_db.record_letter(letter)
+        match = temp_db.letters_by_sender("Stadtwerke Berlin GmbH")
+        assert len(match) == 1
+        assert match[0].letter_id == letter.letter_id
+
+    def test_record_letter_decision_mirrors_status(self, temp_db):
+        letter = self._sample_letter()
+        temp_db.record_letter(letter)
+        temp_db.record_letter_decision(
+            letter.letter_id, "DISPUTED", rationale="forderung bestritten",
+        )
+        assert temp_db.get_letter(letter.letter_id).status == "DISPUTED"
+
+    def test_invalid_status_rejected(self, temp_db):
+        letter = self._sample_letter()
+        temp_db.record_letter(letter)
+        with pytest.raises(ValueError):
+            temp_db.update_letter_status(letter.letter_id, "BOGUS")
+
+    def test_drive_file_dedup(self, temp_db):
+        letter = self._sample_letter()
+        letter.drive_file_id = "FILE-123"
+        temp_db.record_letter(letter)
+        assert temp_db.is_drive_file_seen("FILE-123")
+        assert not temp_db.is_drive_file_seen("UNKNOWN")
+
+
+class TestDispatches:
+    def _setup(self, temp_db):
+        import procurement_letters as pl
+        letter = pl.from_text(
+            "Rechnung Nr. R-2026-0042\nBetrag: 50,00 EUR\nFaellig bis: 30.06.2026\n",
+            source="UPLOAD",
+        )
+        temp_db.record_letter(letter)
+        return letter
+
+    def test_draft_and_list(self, temp_db):
+        letter = self._setup(temp_db)
+        import procurement_letters as pl
+        subject, body = pl.widerspruch_email(letter)
+        did = temp_db.record_dispatch_draft(
+            letter_id=letter.letter_id,
+            channel="EMAIL",
+            recipient="billing@example.com",
+            subject=subject,
+            body=body,
+            send_at=pl.dispatch_send_at(letter),
+        )
+        assert did > 0
+        drafts = temp_db.pending_dispatches()
+        assert len(drafts) == 1
+        assert drafts[0].subject.startswith("Widerspruch zu R-2026-0042")
+        assert drafts[0].status == "DRAFT"
+
+    def test_mark_sent_moves_status(self, temp_db):
+        letter = self._setup(temp_db)
+        import procurement_letters as pl
+        sub, body = pl.widerspruch_email(letter)
+        did = temp_db.record_dispatch_draft(
+            letter_id=letter.letter_id, channel="EMAIL",
+            recipient="x@example.com", subject=sub, body=body,
+            send_at=pl.dispatch_send_at(letter),
+        )
+        temp_db.mark_dispatch_sent(did)
+        assert temp_db.get_dispatch(did).status == "SENT"
+        assert temp_db.get_dispatch(did).sent_at is not None
+        assert temp_db.pending_dispatches() == []
+
+    def test_cancelled_drafts_disappear_from_drafts(self, temp_db):
+        letter = self._setup(temp_db)
+        import procurement_letters as pl
+        sub, body = pl.widerspruch_email(letter)
+        did = temp_db.record_dispatch_draft(
+            letter_id=letter.letter_id, channel="EMAIL",
+            recipient="x@example.com", subject=sub, body=body,
+            send_at=pl.dispatch_send_at(letter),
+        )
+        temp_db.mark_dispatch_cancelled(did)
+        assert temp_db.pending_dispatches() == []
+        assert len(temp_db.pending_dispatches("CANCELLED")) == 1

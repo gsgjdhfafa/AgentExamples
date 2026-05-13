@@ -144,11 +144,85 @@ strategic handbook *"Beschaffung von Militär-/Feuerwehrausrüstung"*.
 streamlit run procurement_dashboard.py
 ```
 
+### Dashboard hotkeys
+
+The dashboard binds browser-level keyboard shortcuts (no Win/Cmd key required).
+Press `?` at any time to see the cheat sheet.
+
+| Key             | Action                                                    |
+|-----------------|-----------------------------------------------------------|
+| `1` – `7`       | Switch tabs (Hot Deals · Pipeline · Monitor · Lerner · Alerts · Chat · Briefe-Triage) |
+| `J`             | Mark the top card as **Ja / ✅ Okay** (Hot Deals + Briefe) |
+| `N`             | Mark it as **Nein / ❌ Widerspruch** (drafts an objection email on Briefe) |
+| `L`             | Mark it as **Später** (watchlist / Wiedervorlage)         |
+| `W`             | Send the topmost draft in the Postausgang (Briefe-Triage only) |
+| `S`             | Re-run all specialist agents                              |
+| `E`             | Trigger the CSV export                                    |
+| `/`             | Focus the keyword filter on the Pipeline tab              |
+| `R`             | Reload the dashboard                                      |
+| `?` / `H`       | Toggle the hotkey help overlay                            |
+| `Esc`           | Close the overlay                                         |
+
+The shortcuts are suppressed while a text input or chat field is focused, so
+typing `?` into the chat just types a question mark.
+
+### Generating the desktop wallpaper
+
+```bash
+python procurement_wallpaper.py                 # 2560x1440 (default)
+python procurement_wallpaper.py 3840 2160       # 4K
+python procurement_wallpaper.py 1920 1080 my.png
+```
+
+The PNG bundles the working-features list (left) and the hotkey reference
+(right) — useful as a desktop background while the dashboard runs.
+
 ### Running the test suite
 
 ```bash
 pytest tests/ -v
 ```
+
+### Briefe-Triage (Tab 7)
+
+The 📨 Briefe-Triage tab mirrors the Hot-Deals decision pattern but for
+incoming letters/invoices. PDFs come from two sources, both processed by the
+same pipeline (extract text via `pdftotext -layout` → classify → extract
+sender / amount / deadline / short code → render Ja/Nein/Später card):
+
+1. **Google Drive** (configured via env vars below)
+2. **Streamlit file uploader** (quick-and-dirty, works without OAuth)
+
+Decisions:
+
+- ✅ **Okay**       → status `KEPT`, no further action.
+- ❌ **Widerspruch** → status `DISPUTED`. A German objection email is
+                      auto-drafted (subject + body) and placed in the
+                      *Postausgang* with planned send time `Frist - 4 Tage`.
+                      The mail does **not** go out automatically. The operator
+                      reviews the draft and clicks **Jetzt senden** (or `W`).
+- ⏳ **Später**     → status `LATER`, no draft, just kept in the inbox.
+
+Per-sender context view shows every previous letter from the same correspondent.
+
+Drive setup (one-time):
+
+1. Create a Google Cloud project, enable the **Drive API**.
+2. Create an OAuth Client of type **Desktop App**, download `credentials.json`.
+3. Set env vars:
+
+```
+PROCUREMENT_DRIVE_CREDENTIALS=/path/to/credentials.json
+PROCUREMENT_DRIVE_FOLDER_ID=<drive folder id>
+PROCUREMENT_DRIVE_TOKEN_CACHE=/path/to/token_cache.json   # optional
+PROCUREMENT_OPERATOR_NAME="Vorname Nachname"              # appears in Widerspruch
+```
+
+4. First click on **Drive abfragen** opens a local OAuth server; the token is
+   cached so subsequent runs are silent.
+
+The dashboard works without Drive: missing env vars hide the **Drive abfragen**
+button and only the file uploader is shown.
 
 ### Optional alert configuration
 

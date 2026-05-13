@@ -37,7 +37,10 @@ import streamlit as st
 import procurement_agents as pagents
 import procurement_alerts as palerts
 import procurement_data as pdata
+import procurement_drive as pdrive
 import procurement_learner as plearner
+import procurement_letters as pletters
+import procurement_pdf as ppdf
 import procurement_sources as psources
 import procurement_store as pstore
 
@@ -82,7 +85,187 @@ st.markdown(
     .verdict-later { color:#8a6d3b; font-weight:600; }
     .source-ok    { color:#0a7d33; font-weight:600; }
     .source-fail  { color:#b00020; font-weight:600; }
+    /* Hotkey help overlay */
+    #procurement-hotkey-overlay {
+        position: fixed; inset: 0; background: rgba(8,12,24,0.78);
+        display: none; align-items: center; justify-content: center;
+        z-index: 9999;
+    }
+    #procurement-hotkey-overlay .panel {
+        background: #1b2236; color: #f0f4fc;
+        border: 1px solid #3a4666; border-radius: 12px;
+        padding: 28px 36px; min-width: 480px; max-width: 640px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+    }
+    #procurement-hotkey-overlay h2 {
+        margin: 0 0 14px 0; color: #5aa8ff; font-size: 1.4em;
+    }
+    #procurement-hotkey-overlay table { border-collapse: collapse; width: 100%; }
+    #procurement-hotkey-overlay td { padding: 6px 8px; vertical-align: middle; }
+    #procurement-hotkey-overlay kbd {
+        display: inline-block; min-width: 38px; padding: 4px 10px;
+        background: #28304c; border: 1px solid #6e82b4; border-radius: 6px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-weight: 700; text-align: center; color: #f0f4fc;
+    }
+    #procurement-hotkey-overlay .hint {
+        margin-top: 14px; font-size: 0.85em; color: #a0aec8;
+    }
     </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# Hotkey bindings + help overlay. Injected once, guarded against re-runs.
+st.markdown(
+    """
+<div id="procurement-hotkey-overlay">
+  <div class="panel">
+    <h2>⌨ Hotkeys</h2>
+    <table>
+      <tr><td><kbd>1</kbd>–<kbd>7</kbd></td><td>Tab wechseln (Hot Deals · Pipeline · Monitor · Lerner · Alerts · Chat · Briefe-Triage)</td></tr>
+      <tr><td><kbd>J</kbd></td><td>Ja / ✅ Okay — auf Hot Deals: kaufen, auf Briefe: in Ordnung</td></tr>
+      <tr><td><kbd>N</kbd></td><td>Nein / ❌ Widerspruch — verwerfen bzw. Entwurf erstellen</td></tr>
+      <tr><td><kbd>L</kbd></td><td>Später — Watchlist / Wiedervorlage</td></tr>
+      <tr><td><kbd>W</kbd></td><td>Top-Entwurf im Postausgang senden (nur Briefe-Triage)</td></tr>
+      <tr><td><kbd>/</kbd></td><td>Stichwort-Filter fokussieren (Pipeline-Tab)</td></tr>
+      <tr><td><kbd>S</kbd></td><td>Spezialisten neu scannen (Hot Deals)</td></tr>
+      <tr><td><kbd>E</kbd></td><td>CSV exportieren</td></tr>
+      <tr><td><kbd>R</kbd></td><td>Dashboard reloaden</td></tr>
+      <tr><td><kbd>?</kbd> / <kbd>H</kbd></td><td>Diese Hilfe ein/aus</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Hilfe schliessen</td></tr>
+    </table>
+    <div class="hint">Hotkeys feuern nur, wenn kein Eingabefeld fokussiert ist.</div>
+  </div>
+</div>
+<script>
+(function () {
+  const NS = "__procurement_hotkeys_v1__";
+  if (window[NS]) return;
+  window[NS] = true;
+
+  const overlay = () => document.getElementById("procurement-hotkey-overlay");
+  const showHelp = () => { const o = overlay(); if (o) o.style.display = "flex"; };
+  const hideHelp = () => { const o = overlay(); if (o) o.style.display = "none"; };
+  const helpVisible = () => {
+    const o = overlay();
+    return o && getComputedStyle(o).display !== "none";
+  };
+
+  // Click first <button> whose visible text matches the predicate. Returns true on hit.
+  function clickButton(predicate) {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const hit = buttons.find(b => {
+      // skip hidden buttons (e.g. inactive tabs keep content in DOM but hidden)
+      if (b.offsetParent === null) return false;
+      const text = (b.innerText || b.textContent || "").trim();
+      return predicate(text);
+    });
+    if (hit) { hit.click(); return true; }
+    return false;
+  }
+
+  function activeTabName() {
+    const t = document.querySelector('button[role="tab"][aria-selected="true"]');
+    return t ? (t.innerText || "").trim() : "";
+  }
+
+  function selectTab(index) {
+    const tabs = Array.from(document.querySelectorAll('button[role="tab"]'));
+    if (tabs.length >= index) tabs[index - 1].click();
+  }
+
+  document.addEventListener("keydown", function (ev) {
+    // never hijack when typing
+    const tag = (ev.target.tagName || "").toLowerCase();
+    if (ev.isComposing || tag === "input" || tag === "textarea" ||
+        ev.target.isContentEditable) {
+      if (ev.key === "Escape" && helpVisible()) hideHelp();
+      return;
+    }
+
+    const k = ev.key;
+
+    // Help toggle / close (works everywhere)
+    if (k === "?" || k === "h" || k === "H") {
+      ev.preventDefault();
+      helpVisible() ? hideHelp() : showHelp();
+      return;
+    }
+    if (k === "Escape") { hideHelp(); return; }
+
+    // Numeric tabs
+    if (k >= "1" && k <= "7") {
+      ev.preventDefault();
+      selectTab(parseInt(k, 10));
+      return;
+    }
+
+    // Ja / Nein / Spaeter — Hot Deals OR Briefe-Triage tab
+    const tab = activeTabName();
+    const onHotDeals = tab.includes("Hot Deals");
+    const onBriefe = tab.includes("Briefe");
+    const onCardTab = onHotDeals || onBriefe;
+
+    if (k === "j" || k === "J") {
+      if (onCardTab) { ev.preventDefault(); clickButton(t => t.startsWith("✅")); }
+      return;
+    }
+    if (k === "n" || k === "N") {
+      if (onCardTab) { ev.preventDefault(); clickButton(t => t.startsWith("❌")); }
+      return;
+    }
+    if (k === "l" || k === "L") {
+      if (onCardTab) { ev.preventDefault(); clickButton(t => t.startsWith("⏳")); }
+      return;
+    }
+    if (k === "w" || k === "W") {
+      if (onBriefe) {
+        ev.preventDefault();
+        clickButton(t => t.includes("Jetzt senden"));
+      }
+      return;
+    }
+
+    if (k === "s" || k === "S") {
+      if (onHotDeals) {
+        ev.preventDefault();
+        clickButton(t => t.includes("Spezialisten jetzt scannen"));
+      }
+      return;
+    }
+
+    if (k === "e" || k === "E") {
+      ev.preventDefault();
+      clickButton(t => t.includes("CSV exportieren") ||
+                       t.includes("Entscheidungen als CSV"));
+      return;
+    }
+
+    if (k === "r" || k === "R") {
+      ev.preventDefault();
+      window.location.reload();
+      return;
+    }
+
+    if (k === "/") {
+      ev.preventDefault();
+      const inp = document.querySelector('input[aria-label*="Stichwort"]');
+      if (inp) inp.focus();
+      return;
+    }
+  });
+
+  // Click outside the help panel = close
+  document.addEventListener("click", function (ev) {
+    const o = overlay();
+    if (!o || !helpVisible()) return;
+    if (ev.target === o) hideHelp();
+  });
+})();
+</script>
     """,
     unsafe_allow_html=True,
 )
@@ -92,7 +275,8 @@ st.caption(
     "Akquise von Behörden-, Militär-, Feuerwehr-, Wasserbau- und "
     "Edelmetall-Beständen — Score-getriebene Übersicht aus VEBEG, "
     "Zoll-Auktion, Troostwijk, Domaine, AMW, TED, e-vergabe, NetBid, "
-    "Surplex und Fornæs."
+    "Surplex und Fornæs.   ⌨ Hotkeys: `?` für Hilfe, `1`–`6` für Tabs, "
+    "`J/N/L` für Ja/Nein/Später."
 )
 
 
@@ -198,13 +382,14 @@ st.divider()
 # Tabs
 # ---------------------------------------------------------------------------
 
-tab_hot, tab_pipeline, tab_monitor, tab_learn, tab_alerts, tab_chat = st.tabs([
+tab_hot, tab_pipeline, tab_monitor, tab_learn, tab_alerts, tab_chat, tab_briefe = st.tabs([
     "🔥 Hot Deals",
     "📋 Pipeline",
     "🤖 Agent-Monitor",
     "🧠 Lerner",
     "🔔 Alerts",
     "💬 Chat",
+    "📨 Briefe-Triage",
 ])
 
 
@@ -691,6 +876,262 @@ with tab_chat:
             st.session_state["agent"].clear_chat()
             st.session_state["chat_messages"] = []
             st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# TAB 7 - Briefe-Triage (Rechnungen / Mahnungen, Drive + Upload)
+# ---------------------------------------------------------------------------
+
+with tab_briefe:
+    st.markdown(
+        "Eingehende Briefe (Rechnungen, Mahnungen, Widerspruchsfristen) per "
+        "Tastendruck triagieren. Bei **Widerspruch** legt der Agent einen "
+        "deutschen Entwurf in den Postausgang. Nichts geht ohne deinen "
+        "expliziten Klick raus."
+    )
+
+    if not ppdf.is_available():
+        st.error(
+            "`pdftotext` (poppler-utils) ist nicht installiert. Auf Debian/"
+            "Ubuntu: `sudo apt-get install poppler-utils`. Ohne pdftotext "
+            "koennen wir keine PDFs einlesen."
+        )
+
+    # -- Input row -------------------------------------------------------
+    drive_col, upload_col = st.columns([1, 2])
+
+    with drive_col:
+        st.markdown("**Google Drive**")
+        drive_client = pdrive.DriveClient()
+        if drive_client.is_configured():
+            if st.button("Drive abfragen", type="primary",
+                         use_container_width=True):
+                added = 0
+                fetched = pdrive.fetch_new_pdfs(
+                    drive_client,
+                    is_seen_fn=pstore.is_drive_file_seen,
+                )
+                for drive_file, local_path in fetched:
+                    try:
+                        text = ppdf.extract_text(local_path)
+                    except Exception as exc:  # noqa: BLE001
+                        st.warning(f"pdftotext-Fehler bei {drive_file.name}: {exc}")
+                        continue
+                    letter = pletters.from_text(
+                        text,
+                        source="DRIVE",
+                        filename=drive_file.name,
+                        drive_file_id=drive_file.file_id,
+                    )
+                    pstore.record_letter(letter)
+                    added += 1
+                st.success(f"{added} neue PDF(s) aus Drive eingelesen.")
+                st.rerun()
+        else:
+            st.caption(
+                f"Nicht konfiguriert: {drive_client.reason_unavailable()}. "
+                "Setze `PROCUREMENT_DRIVE_CREDENTIALS` und "
+                "`PROCUREMENT_DRIVE_FOLDER_ID`."
+            )
+
+    with upload_col:
+        st.markdown("**PDF-Upload (Quick-and-Dirty)**")
+        uploaded = st.file_uploader(
+            "PDFs hier hochladen (Mehrfachauswahl moeglich)",
+            type=["pdf"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+        )
+        # `st.file_uploader` keeps its value across Streamlit reruns, so
+        # without a guard every triage button click would re-ingest every
+        # previously selected file and insert duplicate `letters` rows. We
+        # fingerprint each file (name + size) and remember in session state
+        # which fingerprints we have already ingested this session.
+        if "uploaded_fingerprints" not in st.session_state:
+            st.session_state["uploaded_fingerprints"] = set()
+        seen_fps: set[str] = st.session_state["uploaded_fingerprints"]
+
+        if uploaded and ppdf.is_available():
+            import tempfile
+            ingested = 0
+            for fileobj in uploaded:
+                fingerprint = f"{fileobj.name}:{getattr(fileobj, 'size', 0)}"
+                if fingerprint in seen_fps:
+                    continue
+                with tempfile.NamedTemporaryFile(
+                    suffix=".pdf", delete=False
+                ) as tmp:
+                    tmp.write(fileobj.read())
+                    tmp_path = tmp.name
+                try:
+                    text = ppdf.extract_text(tmp_path)
+                except Exception as exc:  # noqa: BLE001
+                    st.warning(f"pdftotext-Fehler bei {fileobj.name}: {exc}")
+                    seen_fps.add(fingerprint)  # do not retry on every rerun
+                    continue
+                letter = pletters.from_text(
+                    text,
+                    source="UPLOAD",
+                    filename=fileobj.name,
+                )
+                pstore.record_letter(letter)
+                seen_fps.add(fingerprint)
+                ingested += 1
+            if ingested:
+                st.success(f"{ingested} neue PDF(s) eingelesen.")
+
+    st.divider()
+
+    # -- Triage-Kartenstapel --------------------------------------------
+    letters = pstore.all_letters()
+    new_letters = [l for l in letters if l.status == "NEW"]
+
+    st.subheader(f"📥 Eingang ({len(new_letters)} neu / {len(letters)} insgesamt)")
+    if not new_letters:
+        st.info("Keine offenen Briefe. Lade PDFs hoch oder hole sie aus Drive.")
+    operator_name = os.getenv("PROCUREMENT_OPERATOR_NAME", "Der Eigentuemer")
+
+    for letter in new_letters[:10]:
+        with st.container(border=True):
+            head, badge = st.columns([4, 1])
+            head.markdown(
+                f"### {letter.short_code or '(ohne Aktenzeichen)'}  "
+                f"&nbsp;<span class='score-pill'>{letter.letter_type}</span>",
+                unsafe_allow_html=True,
+            )
+            type_class = "verdict-no" if letter.letter_type in (
+                "MAHNUNG", "WIDERSPRUCH_FRIST"
+            ) else "verdict-yes"
+            badge.markdown(
+                f"<span class='{type_class}'>{letter.letter_type}</span>",
+                unsafe_allow_html=True,
+            )
+            head.write(
+                f"**Absender:** {letter.sender or '(unbekannt)'}"
+                + (f" · {letter.sender_email}" if letter.sender_email else "")
+            )
+            cols = st.columns(3)
+            cols[0].metric(
+                "Betrag",
+                pletters._format_amount_de(letter.amount_eur) + " EUR"
+                if letter.amount_eur is not None else "—",
+            )
+            cols[1].metric(
+                "Brief-Datum",
+                pletters._format_date_de(letter.issue_date),
+            )
+            cols[2].metric(
+                "Frist",
+                pletters._format_date_de(letter.deadline_date),
+            )
+            with st.expander("Volltext (extrahiert)"):
+                st.text(letter.raw_text[:4000])
+
+            b1, b2, b3 = st.columns(3)
+            if b1.button("✅ Okay", key=f"letter_ok_{letter.letter_id}"):
+                pstore.record_letter_decision(
+                    letter.letter_id, "KEPT", rationale="okay markiert",
+                )
+                st.rerun()
+            if b2.button("❌ Widerspruch", key=f"letter_no_{letter.letter_id}"):
+                pstore.record_letter_decision(
+                    letter.letter_id, "DISPUTED",
+                    rationale="Widerspruch-Entwurf generiert",
+                )
+                subject, body = pletters.widerspruch_email(letter, operator_name)
+                pstore.record_dispatch_draft(
+                    letter_id=letter.letter_id,
+                    channel="EMAIL",
+                    recipient=letter.sender_email or "",
+                    subject=subject,
+                    body=body,
+                    send_at=pletters.dispatch_send_at(letter),
+                )
+                st.rerun()
+            if b3.button("⏳ Spaeter", key=f"letter_later_{letter.letter_id}"):
+                pstore.record_letter_decision(
+                    letter.letter_id, "LATER", rationale="auf spaeter geschoben",
+                )
+                st.rerun()
+
+    st.divider()
+
+    # -- Postausgang -----------------------------------------------------
+    drafts = pstore.pending_dispatches("DRAFT")
+    st.subheader(f"📤 Postausgang ({len(drafts)} Entwurf/Entwuerfe)")
+    if not drafts:
+        st.info("Aktuell keine Widerspruchs-Entwuerfe.")
+    for d in drafts:
+        with st.container(border=True):
+            top1, top2 = st.columns([3, 1])
+            top1.markdown(f"**{d.subject}**")
+            days_left = (d.send_at - now).days
+            colour = ("verdict-no" if days_left <= 2 else
+                      "verdict-later" if days_left <= 5 else
+                      "verdict-yes")
+            top2.markdown(
+                f"<span class='{colour}'>Senden geplant: "
+                f"{d.send_at:%d.%m.%Y} · in {days_left} Tagen</span>",
+                unsafe_allow_html=True,
+            )
+            recipient = d.recipient or "(kein Empfaenger erkannt)"
+            st.caption(f"An: {recipient}")
+            with st.expander("Entwurf anzeigen / bearbeiten"):
+                new_recipient = st.text_input(
+                    "Empfaenger", value=recipient,
+                    key=f"dispatch_to_{d.id}",
+                )
+                new_subject = st.text_input(
+                    "Betreff", value=d.subject,
+                    key=f"dispatch_subject_{d.id}",
+                )
+                new_body = st.text_area(
+                    "Text", value=d.body, height=240,
+                    key=f"dispatch_body_{d.id}",
+                )
+                bb1, bb2, bb3 = st.columns(3)
+                if bb1.button("✉ Jetzt senden", key=f"send_{d.id}",
+                              type="primary",
+                              disabled=not new_recipient):
+                    sendable = pstore.PendingDispatch(
+                        id=d.id, letter_id=d.letter_id, channel=d.channel,
+                        recipient=new_recipient, subject=new_subject,
+                        body=new_body, send_at=d.send_at, status="DRAFT",
+                        sent_at=None, error=None, created_at=d.created_at,
+                    )
+                    report = palerts.send_letter_dispatch(sendable)
+                    if report.sent:
+                        pstore.mark_dispatch_sent(d.id)
+                        st.success(f"Gesendet an {report.target}.")
+                    else:
+                        pstore.mark_dispatch_failed(d.id, report.error or "unbekannt")
+                        st.error(f"Versand fehlgeschlagen: {report.error}")
+                    st.rerun()
+                if bb2.button("❌ Verwerfen", key=f"cancel_{d.id}"):
+                    pstore.mark_dispatch_cancelled(d.id)
+                    st.rerun()
+                bb3.write("")  # spacer
+
+    st.divider()
+
+    # -- Per-Absender-Kontext -------------------------------------------
+    senders = sorted({l.sender for l in letters if l.sender})
+    if senders:
+        st.subheader("📚 Kontext pro Absender")
+        chosen = st.selectbox(
+            "Absender", senders,
+            key="briefe_sender_selector",
+        )
+        related = pstore.letters_by_sender(chosen)
+        df_related = pd.DataFrame([{
+            "Datum": l.created_at.strftime("%Y-%m-%d"),
+            "Aktenzeichen": l.short_code or "",
+            "Typ": l.letter_type,
+            "Betrag (€)": l.amount_eur,
+            "Frist": l.deadline_date.isoformat() if l.deadline_date else "",
+            "Status": l.status,
+        } for l in related])
+        st.dataframe(df_related, use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------------------------
