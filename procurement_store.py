@@ -25,7 +25,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 DB_PATH = os.getenv("PROCUREMENT_DB", "procurement.db")
 
@@ -68,6 +68,51 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     top_score         INTEGER,
     notes             TEXT
 );
+
+-- Briefe-Triage feature ----------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS letters (
+    letter_id      TEXT PRIMARY KEY,
+    drive_file_id  TEXT UNIQUE,
+    source         TEXT NOT NULL,           -- DRIVE | UPLOAD
+    filename       TEXT,
+    short_code     TEXT,
+    sender         TEXT,
+    sender_email   TEXT,
+    letter_type    TEXT NOT NULL,
+    amount_eur     REAL,
+    issue_date     TEXT,
+    deadline_date  TEXT,
+    raw_text       TEXT,
+    status         TEXT DEFAULT 'NEW',      -- NEW|KEPT|DISPUTED|LATER|IGNORED
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_letters_sender   ON letters(sender);
+CREATE INDEX IF NOT EXISTS idx_letters_deadline ON letters(deadline_date);
+
+CREATE TABLE IF NOT EXISTS letter_decisions (
+    letter_id   TEXT PRIMARY KEY,
+    verdict     TEXT NOT NULL,
+    rationale   TEXT,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pending_dispatches (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    letter_id   TEXT NOT NULL,
+    channel     TEXT NOT NULL,              -- EMAIL
+    recipient   TEXT NOT NULL,
+    subject     TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    send_at     TEXT NOT NULL,
+    status      TEXT DEFAULT 'DRAFT',       -- DRAFT|SENT|CANCELLED
+    sent_at     TEXT,
+    error       TEXT,
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (letter_id) REFERENCES letters(letter_id)
+);
+CREATE INDEX IF NOT EXISTS idx_dispatch_status ON pending_dispatches(status);
 """
 
 
@@ -344,3 +389,289 @@ def export_decisions_csv() -> str:
             f"{d.created_at.isoformat()}"
         )
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Briefe-Triage: letters
+# ---------------------------------------------------------------------------
+
+_VALID_LETTER_STATUS = ("NEW", "KEPT", "DISPUTED", "LATER", "IGNORED")
+_VALID_LETTER_VERDICT = ("KEPT", "DISPUTED", "LATER", "IGNORED")
+_VALID_DISPATCH_STATUS = ("DRAFT", "SENT", "CANCELLED")
+
+
+def _date_or_none(value) -> date | None:
+    if not value:
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _dt_or_none(value) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _serialise_date(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
+def _serialise_dt(value) -> str:
+    if value is None:
+        return datetime.now(timezone.utc).isoformat()
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def record_letter(letter) -> None:
+    """Upsert a Letter (procurement_letters.Letter) into the store."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO letters
+               (letter_id, drive_file_id, source, filename, short_code,
+                sender, sender_email, letter_type, amount_eur,
+                issue_date, deadline_date, raw_text, status,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(letter_id) DO UPDATE SET
+                   drive_file_id=excluded.drive_file_id,
+                   source=excluded.source,
+                   filename=excluded.filename,
+                   short_code=excluded.short_code,
+                   sender=excluded.sender,
+                   sender_email=excluded.sender_email,
+                   letter_type=excluded.letter_type,
+                   amount_eur=excluded.amount_eur,
+                   issue_date=excluded.issue_date,
+                   deadline_date=excluded.deadline_date,
+                   raw_text=excluded.raw_text,
+                   status=excluded.status,
+                   updated_at=excluded.updated_at""",
+            (
+                letter.letter_id,
+                letter.drive_file_id,
+                letter.source,
+                letter.filename,
+                letter.short_code,
+                letter.sender,
+                letter.sender_email,
+                letter.letter_type,
+                letter.amount_eur,
+                _serialise_date(letter.issue_date),
+                _serialise_date(letter.deadline_date),
+                letter.raw_text,
+                letter.status,
+                _serialise_dt(letter.created_at) or now_iso,
+                now_iso,
+            ),
+        )
+
+
+def _row_to_letter(row):
+    # Lazy import to avoid a circular dependency at module load time.
+    from procurement_letters import Letter
+    return Letter(
+        letter_id=row["letter_id"],
+        drive_file_id=row["drive_file_id"],
+        source=row["source"],
+        filename=row["filename"],
+        short_code=row["short_code"],
+        sender=row["sender"],
+        sender_email=row["sender_email"],
+        letter_type=row["letter_type"],
+        amount_eur=row["amount_eur"],
+        issue_date=_date_or_none(row["issue_date"]),
+        deadline_date=_date_or_none(row["deadline_date"]),
+        raw_text=row["raw_text"] or "",
+        status=row["status"] or "NEW",
+        created_at=_dt_or_none(row["created_at"]) or datetime.now(timezone.utc),
+        updated_at=_dt_or_none(row["updated_at"]) or datetime.now(timezone.utc),
+    )
+
+
+def get_letter(letter_id: str):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM letters WHERE letter_id = ?", (letter_id,)
+        ).fetchone()
+    return _row_to_letter(row) if row else None
+
+
+def all_letters(status: str | None = None) -> list:
+    sql = "SELECT * FROM letters"
+    params: tuple = ()
+    if status:
+        sql += " WHERE status = ?"
+        params = (status,)
+    sql += " ORDER BY created_at DESC"
+    with _connect() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_row_to_letter(r) for r in rows]
+
+
+def letters_by_sender(sender: str) -> list:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM letters WHERE sender = ? ORDER BY created_at DESC",
+            (sender,),
+        ).fetchall()
+    return [_row_to_letter(r) for r in rows]
+
+
+def update_letter_status(letter_id: str, status: str) -> None:
+    if status not in _VALID_LETTER_STATUS:
+        raise ValueError(f"status must be one of {_VALID_LETTER_STATUS}, got {status!r}")
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE letters SET status = ?, updated_at = ? WHERE letter_id = ?",
+            (status, datetime.now(timezone.utc).isoformat(), letter_id),
+        )
+
+
+def record_letter_decision(
+    letter_id: str, verdict: str, *, rationale: str | None = None,
+) -> None:
+    if verdict not in _VALID_LETTER_VERDICT:
+        raise ValueError(
+            f"letter verdict must be one of {_VALID_LETTER_VERDICT}, got {verdict!r}"
+        )
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO letter_decisions (letter_id, verdict, rationale, created_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(letter_id) DO UPDATE SET
+                   verdict=excluded.verdict,
+                   rationale=excluded.rationale,
+                   created_at=excluded.created_at""",
+            (letter_id, verdict, rationale, now_iso),
+        )
+    # Mirror the verdict onto the letter row so a single query gives both.
+    update_letter_status(letter_id, verdict)
+
+
+def is_drive_file_seen(drive_file_id: str) -> bool:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM letters WHERE drive_file_id = ? LIMIT 1",
+            (drive_file_id,),
+        ).fetchone()
+    return row is not None
+
+
+# ---------------------------------------------------------------------------
+# Briefe-Triage: pending dispatches
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PendingDispatch:
+    id: int
+    letter_id: str
+    channel: str
+    recipient: str
+    subject: str
+    body: str
+    send_at: datetime
+    status: str
+    sent_at: datetime | None
+    error: str | None
+    created_at: datetime
+
+
+def _row_to_dispatch(row) -> PendingDispatch:
+    return PendingDispatch(
+        id=row["id"],
+        letter_id=row["letter_id"],
+        channel=row["channel"],
+        recipient=row["recipient"],
+        subject=row["subject"],
+        body=row["body"],
+        send_at=_dt_or_none(row["send_at"]) or datetime.now(timezone.utc),
+        status=row["status"] or "DRAFT",
+        sent_at=_dt_or_none(row["sent_at"]),
+        error=row["error"],
+        created_at=_dt_or_none(row["created_at"]) or datetime.now(timezone.utc),
+    )
+
+
+def record_dispatch_draft(
+    *,
+    letter_id: str,
+    channel: str,
+    recipient: str,
+    subject: str,
+    body: str,
+    send_at: datetime,
+) -> int:
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO pending_dispatches
+               (letter_id, channel, recipient, subject, body, send_at, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?)""",
+            (
+                letter_id, channel, recipient, subject, body,
+                _serialise_dt(send_at),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        return cur.lastrowid
+
+
+def pending_dispatches(status: str = "DRAFT") -> list[PendingDispatch]:
+    if status not in _VALID_DISPATCH_STATUS:
+        raise ValueError(f"status must be one of {_VALID_DISPATCH_STATUS}")
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM pending_dispatches WHERE status = ? ORDER BY send_at ASC",
+            (status,),
+        ).fetchall()
+    return [_row_to_dispatch(r) for r in rows]
+
+
+def get_dispatch(dispatch_id: int) -> PendingDispatch | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM pending_dispatches WHERE id = ?", (dispatch_id,),
+        ).fetchone()
+    return _row_to_dispatch(row) if row else None
+
+
+def mark_dispatch_sent(dispatch_id: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE pending_dispatches SET status='SENT', sent_at=?, error=NULL "
+            "WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), dispatch_id),
+        )
+
+
+def mark_dispatch_failed(dispatch_id: int, error: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE pending_dispatches SET error=? WHERE id = ?",
+            (error, dispatch_id),
+        )
+
+
+def mark_dispatch_cancelled(dispatch_id: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE pending_dispatches SET status='CANCELLED' WHERE id = ?",
+            (dispatch_id,),
+        )

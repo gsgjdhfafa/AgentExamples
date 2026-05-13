@@ -151,3 +151,49 @@ def dispatch_alerts(opps: list[pdata.Opportunity]) -> list[DispatchReport]:
     reports = [send_email(opps), send_webhook(opps)]
     return [r for r in reports if r.error != "SMTP host not configured"
             and r.error != "Webhook URL not configured"]
+
+
+# ---------------------------------------------------------------------------
+# Briefe-Triage: Widerspruch / letter dispatch
+# ---------------------------------------------------------------------------
+
+def send_letter_dispatch(dispatch) -> DispatchReport:
+    """Send a single ``procurement_store.PendingDispatch`` via SMTP.
+
+    Reuses the SMTP plumbing of :func:`send_email` but bypasses the global
+    PROCUREMENT_ALERT_TO recipient list — the recipient comes from the
+    dispatch row (= the original letter's sender). Subject and body are used
+    verbatim so the operator stays in full control of the text.
+    """
+    host = os.getenv("PROCUREMENT_ALERT_SMTP_HOST")
+    if not host:
+        return DispatchReport("letter-email", dispatch.recipient, sent=False,
+                              error="SMTP host not configured")
+    port = int(os.getenv("PROCUREMENT_ALERT_SMTP_PORT", "587"))
+    user = os.getenv("PROCUREMENT_ALERT_SMTP_USER")
+    pwd = os.getenv("PROCUREMENT_ALERT_SMTP_PASSWORD")
+    sender = os.getenv("PROCUREMENT_ALERT_FROM") or user
+
+    if not (sender and dispatch.recipient):
+        return DispatchReport("letter-email", dispatch.recipient, sent=False,
+                              error="Sender or recipient missing")
+
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = dispatch.recipient
+    msg["Subject"] = dispatch.subject
+    msg.set_content(dispatch.body)
+
+    try:
+        with smtplib.SMTP(host, port, timeout=10) as s:
+            s.starttls()
+            if user and pwd:
+                s.login(user, pwd)
+            s.send_message(msg)
+        return DispatchReport("letter-email", dispatch.recipient, sent=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Letter dispatch failed: %s", exc)
+        return DispatchReport(
+            "letter-email", dispatch.recipient,
+            sent=False, error=f"{type(exc).__name__}: {exc}",
+        )

@@ -26,16 +26,16 @@ from PIL import Image, ImageDraw, ImageFont
 # ---------------------------------------------------------------------------
 
 FEATURES = [
-    ("Live data sources",          "Zoll-API · TED Tenders · Mock (offline)"),
+    ("Live data sources",          "Zoll-API · TED · Mock · Google Drive"),
     ("17 curated opportunities",   "VEBEG · Zoll · Troostwijk · Domaine · AMW"),
+    ("Briefe-Triage",              "PDF/Drive · Rechnungen · Mahnungen · Widerspruch-Entwurf"),
     ("Scoring engine",             "0-100 attractiveness · Bid-Limit (Handbuch §9)"),
     ("Bargain learner",            "Per-Kategorie Fit (±12) · Marktwert 0.5-1.5x"),
     ("5 specialist agents",        "Generalist · Bargain · Scrap · Edelmetall · Triton"),
-    ("SQLite persistence",         "decisions · observations · agent_runs"),
+    ("SQLite persistence",         "decisions · observations · runs · letters · dispatches"),
     ("Alerts",                     "SMTP-Mail + Webhook (env-konfiguriert)"),
-    ("Multi-tab dashboard",        "Hot Deals · Pipeline · Monitor · Lerner · Alerts"),
+    ("Multi-tab dashboard",        "7 Tabs · Ja/Nein-Cards · Postausgang"),
     ("Chat agent",                 "DeepSeek-V3 · 7 Tools · OpenAI-kompatibel"),
-    ("Test suite",                 "45 pytest · alle grün"),
 ]
 
 HOTKEYS = [
@@ -45,15 +45,15 @@ HOTKEYS = [
     ("4",          "Tab: Lerner"),
     ("5",          "Tab: Alerts"),
     ("6",          "Tab: Chat"),
-    ("J",          "Ja  - Asset kaufen"),
-    ("N",          "Nein - Asset verwerfen"),
-    ("L",          "Später - auf Watchlist"),
+    ("7",          "Tab: Briefe-Triage"),
+    ("J",          "Ja / Okay  - Karte akzeptieren"),
+    ("N",          "Nein / Widerspruch - verwerfen"),
+    ("L",          "Spaeter - Watchlist / Wiedervorlage"),
+    ("W",          "Top-Entwurf im Postausgang senden"),
     ("/",          "Filter: Stichwort fokussieren"),
-    ("R",          "Reload / Scan-Re-Run"),
+    ("R",          "Reload"),
     ("S",          "Spezialisten neu scannen"),
-    ("E",          "CSV exportieren"),
     ("?",          "Hotkey-Hilfe ein/aus"),
-    ("Esc",        "Overlay schließen"),
 ]
 
 
