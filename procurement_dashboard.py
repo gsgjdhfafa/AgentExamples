@@ -1013,16 +1013,16 @@ with tab_briefe:
             cols = st.columns(3)
             cols[0].metric(
                 "Betrag",
-                pletters._format_amount_de(letter.amount_eur) + " EUR"
+                pletters.format_amount_de(letter.amount_eur) + " EUR"
                 if letter.amount_eur is not None else "—",
             )
             cols[1].metric(
                 "Brief-Datum",
-                pletters._format_date_de(letter.issue_date),
+                pletters.format_date_de(letter.issue_date),
             )
             cols[2].metric(
                 "Frist",
-                pletters._format_date_de(letter.deadline_date),
+                pletters.format_date_de(letter.deadline_date),
             )
             with st.expander("Volltext (extrahiert)"):
                 st.text(letter.raw_text[:4000])
