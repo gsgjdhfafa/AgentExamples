@@ -43,6 +43,7 @@ import procurement_letters as pletters
 import procurement_pdf as ppdf
 import procurement_sources as psources
 import procurement_store as pstore
+import procurement_today as ptoday
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +126,7 @@ st.markdown(
   <div class="panel">
     <h2>⌨ Hotkeys</h2>
     <table>
-      <tr><td><kbd>1</kbd>–<kbd>7</kbd></td><td>Tab wechseln (Hot Deals · Pipeline · Monitor · Lerner · Alerts · Chat · Briefe-Triage)</td></tr>
+      <tr><td><kbd>1</kbd>–<kbd>8</kbd></td><td>Tab wechseln (Heute · Hot Deals · Pipeline · Monitor · Lerner · Alerts · Chat · Briefe-Triage)</td></tr>
       <tr><td><kbd>J</kbd></td><td>Ja / ✅ Okay — auf Hot Deals: kaufen, auf Briefe: in Ordnung</td></tr>
       <tr><td><kbd>N</kbd></td><td>Nein / ❌ Widerspruch — verwerfen bzw. Entwurf erstellen</td></tr>
       <tr><td><kbd>L</kbd></td><td>Später — Watchlist / Wiedervorlage</td></tr>
@@ -197,7 +198,7 @@ st.markdown(
     if (k === "Escape") { hideHelp(); return; }
 
     // Numeric tabs
-    if (k >= "1" && k <= "7") {
+    if (k >= "1" && k <= "8") {
       ev.preventDefault();
       selectTab(parseInt(k, 10));
       return;
@@ -382,7 +383,17 @@ st.divider()
 # Tabs
 # ---------------------------------------------------------------------------
 
-tab_hot, tab_pipeline, tab_monitor, tab_learn, tab_alerts, tab_chat, tab_briefe = st.tabs([
+(
+    tab_today,
+    tab_hot,
+    tab_pipeline,
+    tab_monitor,
+    tab_learn,
+    tab_alerts,
+    tab_chat,
+    tab_briefe,
+) = st.tabs([
+    "📅 Heute",
     "🔥 Hot Deals",
     "📋 Pipeline",
     "🤖 Agent-Monitor",
@@ -1132,6 +1143,106 @@ with tab_briefe:
             "Status": l.status,
         } for l in related])
         st.dataframe(df_related, use_container_width=True, hide_index=True)
+
+
+# ---------------------------------------------------------------------------
+# TAB 1 - Heute (zentrale Tagesuebersicht, mirror of the Triton Pipeline app)
+# ---------------------------------------------------------------------------
+
+with tab_today:
+    snapshot = ptoday.load_snapshot()
+    if snapshot is None:
+        st.warning(
+            "Keine `data/today_snapshot.json` gefunden. Lass den Snapshot via "
+            "Gmail-MCP erzeugen oder lege die Datei manuell an."
+        )
+    else:
+        gen_age = ptoday.age_label(snapshot.generated_at, now)
+        st.markdown(
+            f"### 📅 Heute · {now.strftime('%A, %d.%m.%Y')}"
+        )
+        st.caption(
+            f"Snapshot: {gen_age} · Quelle Gmail: `{snapshot.source_account}`"
+        )
+
+        # ---- Kopfzeile: Kalender + Mail-Konten -----------------------
+        c1, c2, c3 = st.columns([2, 1, 1])
+        with c1:
+            if snapshot.calendar_ics_url:
+                st.markdown("**⏰ Kalender**")
+                st.markdown(f"[Heutige Termine öffnen]({snapshot.calendar_ics_url})")
+            else:
+                st.markdown("**⏰ Kalender**")
+                st.info(
+                    "Keine ICS-URL hinterlegt. Setze `calendar_ics_url` in "
+                    "`data/today_snapshot.json` (oeffentlich geteilter Google-"
+                    "Calendar-ICS-Link), dann erscheinen Termine hier."
+                )
+        with c2:
+            st.metric("Gmail-Account", "1 / mehrere")
+            st.caption(snapshot.source_account)
+        with c3:
+            st.metric("Verfahren-Labels", len(snapshot.open_verfahren_labels))
+            st.caption("offene Aktenzeichen")
+
+        if snapshot.second_inbox_status:
+            with st.expander("⚠️ Hinweis Zweit-Account"):
+                st.caption(snapshot.second_inbox_status)
+
+        st.divider()
+
+        # ---- 4 Sektionen aus PIPELINE.md -----------------------------
+        for section in snapshot.sections:
+            klass = ptoday.urgency_class(section.urgency)
+            with st.container(border=True):
+                head_l, head_r = st.columns([5, 1])
+                head_l.markdown(
+                    f"### {section.title}  "
+                    f"<span class='{klass}'>{section.thread_count} Threads</span>",
+                    unsafe_allow_html=True,
+                )
+                head_r.caption(section.source_path)
+                st.write(f"_{section.subtitle}_")
+
+                if section.threads:
+                    for t in section.threads:
+                        with st.container():
+                            cols = st.columns([4, 1])
+                            cols[0].markdown(f"**{t.subject}**")
+                            cols[1].caption(ptoday.age_label(t.last_message_at, now))
+                            if t.snippet:
+                                st.caption(t.snippet)
+                            meta_bits = [
+                                f"_Von:_ {t.sender}" if t.sender else None,
+                                f"_Status:_ {t.status}" if t.status else None,
+                            ]
+                            st.caption(" · ".join(b for b in meta_bits if b))
+                            if t.gmail_url:
+                                st.markdown(f"[In Gmail öffnen]({t.gmail_url})")
+                else:
+                    st.info("Keine aktiven Threads in den letzten 14 Tagen.")
+
+                if section.chips:
+                    chip_html = " ".join(
+                        f"<span class='score-pill'>{c}</span>"
+                        for c in section.chips
+                    )
+                    st.markdown(chip_html, unsafe_allow_html=True)
+
+        # ---- Verfahren-Tracker (Labels) ------------------------------
+        if snapshot.open_verfahren_labels:
+            with st.expander(
+                f"⚖️ {len(snapshot.open_verfahren_labels)} offene Verfahren-Labels"
+            ):
+                for label in snapshot.open_verfahren_labels:
+                    st.markdown(f"- {label}")
+
+        st.divider()
+        st.caption(
+            "Diese Sicht spiegelt deine Triton-Pipeline (PIPELINE.md). "
+            "Daten kommen aus `data/today_snapshot.json`. Refresh: Snapshot via "
+            "Gmail-MCP neu erzeugen."
+        )
 
 
 # ---------------------------------------------------------------------------
