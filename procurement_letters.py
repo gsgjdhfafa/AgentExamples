@@ -285,14 +285,14 @@ def from_text(
 _AMOUNT_FORMAT = "{:,.2f}"  # then swap . and , for German conventions
 
 
-def _format_amount_de(amount: float | None) -> str:
+def format_amount_de(amount: float | None) -> str:
     if amount is None:
         return "(Betrag unbekannt)"
     raw = _AMOUNT_FORMAT.format(amount)
     return raw.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def _format_date_de(value: date | None) -> str:
+def format_date_de(value: date | None) -> str:
     if value is None:
         return "(Datum unbekannt)"
     return value.strftime("%d.%m.%Y")
@@ -307,8 +307,8 @@ def widerspruch_email(
     admit to receipt, and explicitly asks for written confirmation.
     """
     short_code = letter.short_code or "(ohne Aktenzeichen)"
-    issue = _format_date_de(letter.issue_date)
-    amount = _format_amount_de(letter.amount_eur)
+    issue = format_date_de(letter.issue_date)
+    amount = format_amount_de(letter.amount_eur)
 
     subject = f"Widerspruch zu {short_code} vom {issue}"
 
