@@ -122,7 +122,15 @@ class AsanaClient:
         """Tasks assigned to ``me`` that are not completed, with a due date
         in the past or within the next ``horizon_days`` days. Tasks without
         a due date are excluded (they would otherwise drown the list).
+
+        Prefers ``data/asana_tasks.json`` (dumped via
+        ``scripts/fetch_asana.py``) when present - that way the dashboard
+        works in environments that cannot reach ``app.asana.com`` directly
+        (e.g. our Linux sandbox). Falls back to a live API call otherwise.
         """
+        snapshot = _load_snapshot()
+        if snapshot is not None:
+            return _filter_horizon(snapshot, horizon_days)
         if not self.is_configured():
             return []
         workspace_gid = self._ensure_workspace()
@@ -138,10 +146,6 @@ class AsanaClient:
             due_on = _parse_date(row.get("due_on"))
             if due_on is None:
                 continue
-            if due_on > date.today().fromordinal(
-                date.today().toordinal() + horizon_days
-            ):
-                continue
             out.append(AsanaTask(
                 gid=row["gid"],
                 name=row.get("name", "(ohne Titel)"),
@@ -153,12 +157,46 @@ class AsanaClient:
                 permalink_url=row.get("permalink_url"),
                 assignee_status=row.get("assignee_status"),
             ))
-        # Overdue first, then due-today, then by due date ascending
-        out.sort(key=lambda t: (
-            0 if t.overdue else (1 if t.due_today else 2),
-            t.due_on or date(9999, 12, 31),
+        return _filter_horizon(out, horizon_days)
+
+
+_SNAPSHOT_PATH = Path(__file__).resolve().parent / "data" / "asana_tasks.json"
+
+
+def _load_snapshot() -> list[AsanaTask] | None:
+    if not _SNAPSHOT_PATH.exists():
+        return None
+    try:
+        import json
+        payload = json.loads(_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read %s: %s", _SNAPSHOT_PATH, exc)
+        return None
+    out: list[AsanaTask] = []
+    for row in payload.get("tasks", []):
+        out.append(AsanaTask(
+            gid=row.get("gid", ""),
+            name=row.get("name", "(ohne Titel)"),
+            due_on=_parse_date(row.get("due_on")),
+            completed=bool(row.get("completed", False)),
+            project_names=list(row.get("project_names", [])),
+            permalink_url=row.get("permalink_url"),
+            assignee_status=row.get("assignee_status"),
         ))
-        return out
+    return out
+
+
+def _filter_horizon(tasks: list[AsanaTask], horizon_days: int) -> list[AsanaTask]:
+    horizon = date.today().fromordinal(date.today().toordinal() + horizon_days)
+    out = [
+        t for t in tasks
+        if t.due_on is not None and t.due_on <= horizon
+    ]
+    out.sort(key=lambda t: (
+        0 if t.overdue else (1 if t.due_today else 2),
+        t.due_on or date(9999, 12, 31),
+    ))
+    return out
 
 
 def _parse_date(value: str | None) -> date | None:

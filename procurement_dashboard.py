@@ -1233,11 +1233,13 @@ with tab_today:
         # ---- Asana-Tasks (assigned to me, due in next 14d or overdue) -----
         st.markdown("### ✅ Asana - meine offenen Tasks")
         asana_client = pasana.AsanaClient()
-        if not asana_client.is_configured():
+        snapshot_path = pasana._SNAPSHOT_PATH
+        snapshot_present = snapshot_path.exists()
+        if not asana_client.is_configured() and not snapshot_present:
             st.caption(
                 f"Asana nicht angebunden: {asana_client.reason_unavailable()}. "
-                "Token anlegen unter https://app.asana.com/0/my-apps, dann "
-                "`ASANA_PAT` setzen und Dashboard neu starten."
+                "Lokal: `ASANA_PAT='2/...' python scripts/fetch_asana.py` -> "
+                "dumpt nach `data/asana_tasks.json`, dieser Tab liest sie dann."
             )
         else:
             try:
