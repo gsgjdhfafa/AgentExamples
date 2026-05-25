@@ -36,6 +36,7 @@ import streamlit as st
 
 import procurement_agents as pagents
 import procurement_alerts as palerts
+import procurement_asana as pasana
 import procurement_data as pdata
 import procurement_drive as pdrive
 import procurement_learner as plearner
@@ -1228,6 +1229,51 @@ with tab_today:
                         for c in section.chips
                     )
                     st.markdown(chip_html, unsafe_allow_html=True)
+
+        # ---- Asana-Tasks (assigned to me, due in next 14d or overdue) -----
+        st.markdown("### ✅ Asana - meine offenen Tasks")
+        asana_client = pasana.AsanaClient()
+        if not asana_client.is_configured():
+            st.caption(
+                f"Asana nicht angebunden: {asana_client.reason_unavailable()}. "
+                "Token anlegen unter https://app.asana.com/0/my-apps, dann "
+                "`ASANA_PAT` setzen und Dashboard neu starten."
+            )
+        else:
+            try:
+                tasks = asana_client.fetch_my_open_tasks(horizon_days=14)
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Asana-Abruf fehlgeschlagen: {exc}")
+                tasks = []
+            if not tasks:
+                st.info("Keine offenen Tasks mit Fälligkeit in den nächsten 14 Tagen.")
+            else:
+                overdue = [t for t in tasks if t.overdue]
+                today_tasks = [t for t in tasks if t.due_today]
+                upcoming = [t for t in tasks if not t.overdue and not t.due_today]
+                cols = st.columns(3)
+                cols[0].metric("Überfällig", len(overdue))
+                cols[1].metric("Heute fällig", len(today_tasks))
+                cols[2].metric("Nächste 14 Tage", len(upcoming))
+                for t in tasks[:15]:
+                    tag = (
+                        "verdict-no" if t.overdue
+                        else ("verdict-later" if t.due_today else "verdict-yes")
+                    )
+                    label = (
+                        "ÜBERFÄLLIG" if t.overdue
+                        else ("HEUTE" if t.due_today else t.due_on.strftime("%d.%m.%Y"))
+                    )
+                    project = " · ".join(t.project_names[:2]) or "(ohne Projekt)"
+                    line = (
+                        f"<span class='{tag}'>{label}</span> &nbsp;"
+                        f"**{t.name}** — _{project}_"
+                    )
+                    if t.permalink_url:
+                        line += f" &nbsp;[↗ in Asana]({t.permalink_url})"
+                    st.markdown(line, unsafe_allow_html=True)
+
+        st.divider()
 
         # ---- Verfahren-Tracker (Labels) ------------------------------
         if snapshot.open_verfahren_labels:
