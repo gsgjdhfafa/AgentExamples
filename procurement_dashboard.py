@@ -1243,7 +1243,7 @@ with tab_today:
             )
         else:
             try:
-                tasks = asana_client.fetch_my_open_tasks(horizon_days=14)
+                tasks = asana_client.fetch_my_open_tasks(horizon_days=90)
             except Exception as exc:  # noqa: BLE001
                 st.error(f"Asana-Abruf fehlgeschlagen: {exc}")
                 tasks = []
