@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lime Dashboard — Deutschland</title>
+  <meta name="description" content="Lime E-Scooter & E-Bike Dashboard mit Deutschland-Karte (Simulationsdaten)." />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <span class="dot"></span>
+        <span>Lime Dashboard <small>· Deutschland</small></span>
+      </div>
+      <div class="header-spacer"></div>
+      <div class="legend">
+        <span><i style="background:var(--good)"></i> Verfügbar</span>
+        <span><i style="background:var(--info)"></i> In Nutzung</span>
+        <span><i style="background:var(--warn)"></i> Schwacher Akku</span>
+        <span><i style="background:var(--bad)"></i> Wartung</span>
+      </div>
+    </header>
+
+    <div class="main">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <h2>Steuerung</h2>
+          <p>Filtere die simulierten Lime-Fahrzeuge in Deutschland.</p>
+        </div>
+
+        <div class="controls">
+          <div>
+            <label for="filter-status">Status</label>
+            <select id="filter-status">
+              <option value="all">Alle</option>
+              <option value="available">Verfügbar</option>
+              <option value="in_use">In Nutzung</option>
+              <option value="low_battery">Schwacher Akku</option>
+              <option value="maintenance">Wartung</option>
+            </select>
+          </div>
+          <div>
+            <label for="filter-type">Fahrzeugtyp</label>
+            <select id="filter-type">
+              <option value="all">Alle</option>
+              <option value="scooter">E-Scooter</option>
+              <option value="bike">E-Bike</option>
+            </select>
+          </div>
+          <div>
+            <label for="filter-city">Stadt</label>
+            <select id="filter-city"></select>
+          </div>
+          <div class="search-row">
+            <span class="icon">🔍</span>
+            <input type="text" id="search" placeholder="Fahrzeug-ID suchen…" />
+          </div>
+        </div>
+
+        <div class="stats" id="stats"></div>
+
+        <div class="list-wrap" id="vehicle-list"></div>
+      </aside>
+
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div class="map-overlay">
+          <b id="ov-count">0</b> Fahrzeuge · <b id="ov-cities">0</b> Städte ·
+          ⌀ Akku <b id="ov-battery">0%</b>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
