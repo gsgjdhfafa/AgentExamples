@@ -1,0 +1,178 @@
+{
+  "generated_at": "2026-05-18T14:34:00Z",
+  "source_account": "mail@taucherteam-triton.de",
+  "calendar_ics_url": null,
+  "tasks_source": null,
+  "second_inbox_status": "Nicht via MCP angebunden - nur mail@taucherteam-triton.de erreichbar. taucherteam.triton.mail@gmail.com, gerrit.grossmaas.ggm@gmail.com, work@taucherteam-triton.de erscheinen nur als To/From in den Threads des Hauptaccounts.",
+  "sections": [
+    {
+      "id": "pitch_paket",
+      "title": "Pitch-Paket (KI4KI)",
+      "subtitle": "Pitch + Business-Plan + Anhang + TV-Aus + Know-how-Support",
+      "source_path": "Pitch-Chat / Desktop 2",
+      "urgency": "red",
+      "active_threads": [
+        {
+          "subject": "KI4KI GmbH i. G. - Antrag Fruehphasenfinanzierung 200.000 EUR - Vollstaendige Unterlagen",
+          "snippet": "Antrag eingereicht, Antwort steht aus seit 11.05.",
+          "from": "antonio.mladenov@zazmic.ai -> mail@taucherteam-triton.de",
+          "last_message_at": "2026-05-11T11:59:06Z",
+          "thread_id": "19e11fccffae52b7",
+          "status": "Awaiting NRW.BANK reply"
+        },
+        {
+          "subject": "AI for AI - Compliance Platform & GCP Partnership Strategy",
+          "snippet": "Keith Johnston (Zazmic) hat den fee-per-license-Vorschlag intern abgelehnt; Leon bittet um Begruendung",
+          "from": "keith.johnston@zazmic.com / damrau@valtumdiving.com",
+          "last_message_at": "2026-04-13T08:46:44Z",
+          "thread_id": "19a7eecf16099f1f",
+          "status": "Pending: Keith Begruendung"
+        },
+        {
+          "subject": "2 homepage designs",
+          "snippet": "Hi Leon, Du kannst beizeiten ja reingucken. Ich hab jetzt noch genau 2 Wochen, dann muss das meiste hier laufen.",
+          "from": "mail@taucherteam-triton.de -> damrau@valtumdiving.com",
+          "last_message_at": "2026-05-18T08:24:57Z",
+          "thread_id": "19e3a29a20309138",
+          "status": "Asked Leon to review"
+        }
+      ],
+      "chips": [
+        "01_Praesentationsgrundlage",
+        "Master-Deck",
+        "Elevator-Pitch",
+        "NRW-BANK Pitch",
+        "NRW-BANK Gesamtdossier (Doc)",
+        "02_Prozess-Stand",
+        "Status-MD"
+      ]
+    },
+    {
+      "id": "bewerbungen",
+      "title": "Bewerbungen Projekte/Programme",
+      "subtitle": "KI4KI & Taucherteam Triton GmbH - Programm-Calls",
+      "source_path": "Bewerbungen-Chat",
+      "urgency": "blue",
+      "active_threads": [
+        {
+          "subject": "KORREKTUR Dublin-Plan: Holding 807218 ist live seit 28.01.2026 - nur noch Bank + Liz-Termin",
+          "snippet": "GENERAL SERGE HOLDING LIMITED 807218 ist live; Bank + Liz-Termin offen",
+          "from": "mail@taucherteam-triton.de",
+          "last_message_at": "2026-05-18T02:50:53Z",
+          "thread_id": "19dec4129db35e73",
+          "status": "Bank-Termin offen"
+        },
+        {
+          "subject": "Re: GENERAL SERGE HOLDING LIMITED 807218 - confirmation in-person meeting Tuesday 5 May, 10:30",
+          "snippet": "Liz Fenlon confirmed in-person meeting; CRO + Bank Steps next.",
+          "from": "mail@taucherteam-triton.de -> gg@ki4ki.de",
+          "last_message_at": "2026-05-18T02:53:43Z",
+          "thread_id": "19dec4fd27ff7a88",
+          "status": "Confirmed"
+        }
+      ],
+      "chips": [
+        "Asana",
+        "ZIM/KfW Pitch-V2 (Doc)",
+        "Pitch-Grundlage (Doc)",
+        "KI4KI Peripher",
+        "NotebookLM"
+      ]
+    },
+    {
+      "id": "insolvenz_briefe",
+      "title": "Insolvenz / Schreiben eingegangen",
+      "subtitle": "Widerspruch einlegen, Fristen maximal verlaengern",
+      "source_path": "Recht-Chat - fristgetrieben",
+      "urgency": "red",
+      "active_threads": [
+        {
+          "subject": "Re: Mahnung vom 11.05.2026 Regulierer 0014060061 (Air Liquide)",
+          "snippet": "Air Liquide hat Belege 1057306765 und 1057306781 vom naechsten Mahnlauf ausgenommen - Kulanz greift",
+          "from": "erechnung.ald@airliquide.com -> mail@taucherteam-triton.de",
+          "last_message_at": "2026-05-18T05:24:07Z",
+          "thread_id": "19e15d63db2f0d9e",
+          "status": "Kulanz bestaetigt"
+        },
+        {
+          "subject": "Re: Ihr Anliegen zu Kundenkonto 6080893366 Ticket (16261244) (Telefonica O2)",
+          "snippet": "Telefonica prueft Sachverhalt weiter; ~18.000 EUR Schadensersatz, fristlose Kuendigung 23.07.2025",
+          "from": "business-team@telefonica.com",
+          "last_message_at": "2026-05-12T11:58:21Z",
+          "thread_id": "19e07f1ece29e8ab",
+          "status": "Pending Telefonica"
+        },
+        {
+          "subject": "AW: M600/ KD 4167684 / 3. Mahnung / offene RG 9397441 (REMONDIS)",
+          "snippet": "Rechnung 9413112 storniert; Widerspruch + Kontenabgleich angefordert",
+          "from": "nadine.herz@remondis.de / reyhan.dadas-sallibas@remondis.de",
+          "last_message_at": "2026-04-13T13:34:56Z",
+          "thread_id": "19d200de04a20cd7",
+          "status": "Storno bestaetigt"
+        },
+        {
+          "subject": "Unsere Rechnung vom 15.04.2026 - Lastschriftrueckgabe / UTA AP-Nr. 157384",
+          "snippet": "UTA Lastschrift ueber 5,89 EUR zurueck - Nachzahlung gefordert",
+          "from": "Service.Finanz@uta.com -> buchhaltung@taucherteam-triton.de",
+          "last_message_at": "2026-04-29T08:49:56Z",
+          "thread_id": "19dd86e803ffcec0",
+          "status": "Buchhaltung uebernehmen"
+        },
+        {
+          "subject": "Fwd: sim.de - Ruecklastschrift von Ihrem Konto",
+          "snippet": "Verwendungszweck 01707735760 an Drillisch Online GmbH - Buchhaltung bitte uebernehmen",
+          "from": "gerrit.grossmaas.ggm@gmail.com -> buchhaltung@taucherteam-triton.de",
+          "last_message_at": "2026-05-18T07:35:52Z",
+          "thread_id": "19e3a03fbdc93830",
+          "status": "Buchhaltung uebernehmen"
+        }
+      ],
+      "chips": [
+        "Briefe Inbox",
+        "Briefe Pending",
+        "Briefe Processing",
+        "ASKGENT",
+        "Briefe-GUI -> Streamlit Tab 7"
+      ]
+    },
+    {
+      "id": "betreuungsverfahren",
+      "title": "Betreuungsverfahren",
+      "subtitle": "Vorfall melden Jugendamt - Termin Jugendamt - OLG naechste Schritte",
+      "source_path": "Recht-Chat - fristgetrieben",
+      "urgency": "red",
+      "active_threads": [
+        {
+          "subject": "Verfahren/Umgangsrecht Carl - offen (Label-Tracking)",
+          "snippet": "Aktives Label-Set: Verfahren/Umgangsrecht, Verfahren/Umgangsrecht Carl - offen. Keine neuen Threads in den letzten 14 Tagen.",
+          "from": "(no recent activity)",
+          "last_message_at": null,
+          "thread_id": null,
+          "status": "Quiet - check label history"
+        }
+      ],
+      "chips": [
+        "Briefe Inbox",
+        "Briefe Done",
+        "ASKGENT",
+        "Kalender (Termine)"
+      ]
+    }
+  ],
+  "extra_summary": {
+    "open_verfahren_labels": [
+      "Verfahren/Tybus - 45 C 76-25",
+      "Verfahren/Polizei Bochum - 250827-1020-041992",
+      "Verfahren/Gesellschaftsrecht Grossmaas - 053797-25",
+      "Verfahren/Debeka KFZ - 7-25-019624",
+      "Verfahren/Debeka KFZ - 7-25-020861",
+      "Verfahren/Umgangsrecht Carl - offen",
+      "Verfahren/DPMA KI4KI - 20 2025 002 133.8",
+      "Verfahren/Fatiras Ali - 841 Js 96-25",
+      "Verfahren/BG BAU - 11.015.400.259",
+      "Verfahren/Insolvenz Holstein - 56 IN 42-24",
+      "Verfahren/Debeka Gewerbe - 13-25-001012",
+      "Verfahren/Umgangsrecht"
+    ]
+  }
+}

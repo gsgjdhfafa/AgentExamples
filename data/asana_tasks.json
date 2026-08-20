@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-05-25T14:35:00Z",
+  "source": "asana-notification-mails (extracted from Gmail because Sandbox kann app.asana.com nicht direkt erreichen)",
+  "tasks": [
+    {
+      "gid": "1214660388887968",
+      "name": "PCT/EPO Patentanmeldung - Statuscheck (Deadline 29.07.2026)",
+      "due_on": "2026-07-29",
+      "completed": false,
+      "project_names": ["ki4ki"],
+      "permalink_url": "https://app.asana.com/1/1213622446889697/project/1213628060924595/task/1214660388887968",
+      "assignee_status": "upcoming"
+    },
+    {
+      "gid": "1213764786991022-stub",
+      "name": "SYSTEMSETUP - PAPA2 (Projekt - keine aktuellen Tasks gemeldet)",
+      "due_on": "2026-06-01",
+      "completed": false,
+      "project_names": ["SYSTEMSETUP - PAPA2"],
+      "permalink_url": "https://app.asana.com/1/1213622446889697/project/1213764786991022/overview",
+      "assignee_status": "later"
+    }
+  ]
+}
