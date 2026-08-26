@@ -3,81 +3,170 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lime Dashboard — Deutschland</title>
-  <meta name="description" content="Lime E-Scooter & E-Bike Dashboard mit Deutschland-Karte (Simulationsdaten)." />
+  <title>Ultra-Interaktive E-Scooter Karte - Deutschland</title>
+  <meta name="description" content="87 deutsche Städte mit VOI, LIME, TIER, Circ - E-Scooter Dashboard mit allen Features" />
 
+  <!-- Leaflet CSS (lokal) -->
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  
+  <!-- Marker Cluster CSS -->
+  <link rel="stylesheet" href="vendor/leaflet/markercluster/MarkerCluster.css" />
+  <link rel="stylesheet" href="vendor/leaflet/markercluster/MarkerCluster.Default.css" />
+  
+  <!-- Eigenes CSS -->
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
   <div class="app">
+    <!-- Header -->
     <header>
-      <div class="brand">
-        <span class="dot"></span>
-        <span>Lime Dashboard <small>· Deutschland</small></span>
+      <div class="header-left">
+        <button id="sidebar-toggle" class="toggle-btn">
+          <span>☰</span>
+        </button>
+        <div class="brand">
+          <span class="dot"></span>
+          <span>E-Scooter Karte <small>· Deutschland</small></span>
+        </div>
       </div>
-      <div class="header-spacer"></div>
-      <div class="legend">
-        <span><i style="background:var(--good)"></i> Verfügbar</span>
-        <span><i style="background:var(--info)"></i> In Nutzung</span>
-        <span><i style="background:var(--warn)"></i> Schwacher Akku</span>
-        <span><i style="background:var(--bad)"></i> Wartung</span>
+      <div class="header-right">
+        <div class="legend">
+          <span><i style="background:var(--voi)"></i> VOI</span>
+          <span><i style="background:var(--high)"></i> Hoch</span>
+          <span><i style="background:var(--medium)"></i> Mittel</span>
+          <span><i style="background:var(--low)"></i> Niedrig</span>
+        </div>
       </div>
     </header>
 
+    <!-- Main Content -->
     <div class="main">
+      <!-- Sidebar -->
       <aside class="sidebar">
         <div class="sidebar-head">
           <h2>Steuerung</h2>
-          <p>Filtere die simulierten Lime-Fahrzeuge in Deutschland.</p>
+          <p>Filtere 87 deutsche Städte mit E-Scooter Anbietern</p>
         </div>
 
-        <div class="controls">
-          <div>
-            <label for="filter-status">Status</label>
-            <select id="filter-status">
-              <option value="all">Alle</option>
-              <option value="available">Verfügbar</option>
-              <option value="in_use">In Nutzung</option>
-              <option value="low_battery">Schwacher Akku</option>
-              <option value="maintenance">Wartung</option>
-            </select>
-          </div>
-          <div>
-            <label for="filter-type">Fahrzeugtyp</label>
-            <select id="filter-type">
-              <option value="all">Alle</option>
-              <option value="scooter">E-Scooter</option>
-              <option value="bike">E-Bike</option>
-            </select>
-          </div>
-          <div>
-            <label for="filter-city">Stadt</label>
-            <select id="filter-city"></select>
-          </div>
+        <!-- Suche -->
+        <div class="control-group">
           <div class="search-row">
             <span class="icon">🔍</span>
-            <input type="text" id="search" placeholder="Fahrzeug-ID suchen…" />
+            <input type="text" id="search" placeholder="Stadt suchen…" />
           </div>
         </div>
 
-        <div class="stats" id="stats"></div>
+        <!-- Filter -->
+        <div class="control-group">
+          <h3>Filter</h3>
+          
+          <div class="control-row">
+            <div class="control-item">
+              <label for="filter-provider">Anbieter</label>
+              <select id="filter-provider">
+                <option value="all">Alle Anbieter</option>
+              </select>
+            </div>
+            <div class="control-item">
+              <label for="filter-priority">Priorität</label>
+              <select id="filter-priority">
+                <option value="all">Alle Prioritäten</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="control-row">
+            <div class="control-item">
+              <label for="filter-river">Fluss-System</label>
+              <select id="filter-river">
+                <option value="all">Alle Flüsse</option>
+              </select>
+            </div>
+            <div class="control-item">
+              <label for="filter-sort">Sortierung</label>
+              <select id="filter-sort">
+                <option value="priority-desc">Priorität (Hoch → Niedrig)</option>
+              </select>
+            </div>
+          </div>
+        </div>
 
-        <div class="list-wrap" id="vehicle-list"></div>
+        <!-- Cluster Toggle -->
+        <div class="control-group">
+          <button id="cluster-toggle" class="btn btn-secondary">Cluster: AN</button>
+        </div>
+
+        <!-- Export -->
+        <div class="control-group">
+          <h3>Export</h3>
+          <div class="export-buttons">
+            <button id="export-excel" class="btn btn-primary">📊 Excel Export</button>
+            <button id="export-csv" class="btn btn-primary">📄 CSV Export</button>
+          </div>
+        </div>
+
+        <!-- Echtzeit-Statistik -->
+        <div class="stats" id="stats">
+          <h3>Statistik</h3>
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="k">Städte gesamt</div>
+              <div class="v">
+                <span id="stats-total">0</span>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="k">VOI-Städte</div>
+              <div class="v" style="color:var(--voi);">
+                <span id="stats-voi">0</span>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="k">Hochpriorität</div>
+              <div class="v" style="color:var(--high);">
+                <span id="stats-high">0</span>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="k">Mittelpriorität</div>
+              <div class="v" style="color:var(--medium);">
+                <span id="stats-medium">0</span>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="k">Fluss-Systeme</div>
+              <div class="v">
+                <span id="stats-rivers">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Städte-Liste -->
+        <div class="list-wrap" id="city-list"></div>
       </aside>
 
+      <!-- Map -->
       <div class="map-wrap">
         <div id="map"></div>
         <div class="map-overlay">
-          <b id="ov-count">0</b> Fahrzeuge · <b id="ov-cities">0</b> Städte ·
-          ⌀ Akku <b id="ov-battery">0%</b>
+          <b id="ov-count">0</b> Städte · 
+          <b id="ov-providers">0</b> Anbieter
         </div>
       </div>
     </div>
   </div>
 
+  <!-- Leaflet JS (lokal) -->
   <script src="vendor/leaflet/leaflet.js"></script>
+  
+  <!-- Marker Cluster JS -->
+  <script src="vendor/leaflet/markercluster/leaflet.markercluster.js"></script>
+  
+  <!-- Daten -->
   <script src="js/data.js"></script>
+  
+  <!-- Anwendung -->
   <script src="js/app.js"></script>
 </body>
 </html>
